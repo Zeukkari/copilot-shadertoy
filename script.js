@@ -1,5 +1,33 @@
 const canvas = document.querySelector("canvas");
 
+// Initialize audio context (lazy initialization on first user interaction)
+let audioCtx = null;
+
+// Setup audio button - wait for DOM to be ready
+document.addEventListener('DOMContentLoaded', () => {
+  const playButton = document.getElementById("play");
+  if (playButton) {
+    playButton.addEventListener("click", () => {
+      // Initialize audio context on first click (required by browsers)
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      
+      // Resume audio context if suspended (required after user interaction)
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      
+      const osc = audioCtx.createOscillator();
+      osc.type = "square";
+      osc.frequency.value = 440; // A4
+      osc.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 1); // 1 second
+    });
+  }
+});
+
 const gl = getRenderingContext();
 let source = document.querySelector("#vertex-shader").innerHTML;
 const vertexShader = gl.createShader(gl.VERTEX_SHADER);
