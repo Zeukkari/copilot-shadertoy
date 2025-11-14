@@ -334,6 +334,54 @@
     gl_FragColor = vec4(finalColor, 1.0);
   }
 </script>
+<script>
+// Speech synthesis function - pitch counter
+let pitchCounter = 0;
+const pitchValues = [0, 1, 1.5, 2.0];
+
+function sayIt() {
+    const text = "Mita vittua Timo";
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "fi-FI";         // force Finnish
+    utterance.rate = 0.8;               // natural speed
+    // Cycle through pitch values: 0 -> 1 -> 1.5 -> 2.0
+    utterance.pitch = pitchValues[pitchCounter % pitchValues.length];
+    pitchCounter++;
+    utterance.volume = 1;
+
+    // Try to pick a Finnish voice if available
+    const voices = speechSynthesis.getVoices();
+    const finnishVoice = voices.find(v =>
+        v.lang.toLowerCase().includes("fi")
+    );
+    if (finnishVoice) utterance.voice = finnishVoice;
+
+    // Track speech state (used by speech.js)
+    utterance.onstart = () => {
+        if (typeof isSpeaking !== 'undefined') {
+            isSpeaking = true;
+        }
+        if (typeof speechStartTime !== 'undefined') {
+            speechStartTime = Date.now();
+        }
+        if (typeof speechPhase !== 'undefined') {
+            speechPhase = 1.0; // Start at full intensity
+        }
+    };
+
+    utterance.onend = () => {
+        if (typeof isSpeaking !== 'undefined') {
+            isSpeaking = false;
+        }
+        if (typeof speechPhase !== 'undefined') {
+            speechPhase = 0.0;
+        }
+    };
+
+    speechSynthesis.speak(utterance);
+}
+</script>
 <script src="speech.js"></script>
 <script src="script.js"></script>
 </body>

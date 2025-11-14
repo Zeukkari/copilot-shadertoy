@@ -1,31 +1,18 @@
-<html>
-
-<body>
-    <button onclick="sayIt()">Say it</button>
-
-    <script>
-    function sayIt() {
-        const text = "Mita vittua Timo";
-    
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "fi-FI";         // force Finnish
-        utterance.rate = 0.8;               // natural speed
-        utterance.pitch = 0.5;              // natural pitch
-        utterance.volume = 1;
-    
-        // Try to pick a Finnish voice if available
-        const voices = speechSynthesis.getVoices();
-        const finnishVoice = voices.find(v =>
-            v.lang.toLowerCase().includes("fi")
-        );
-        if (finnishVoice) utterance.voice = finnishVoice;
-    
-        speechSynthesis.speak(utterance);
-    }
-    
-    // Voices may load asynchronously
-    speechSynthesis.onvoiceschanged = () => {};
-    </script>
-
-</body>
-</html>
+<label>
+    Pitch:
+    <input id="pitch" type="range" min="0" max="2" step="0.1" value="1">
+  </label>
+  
+  <button onclick="sayIt()">Say it</button>
+  
+  <script>
+  function sayIt() {
+    const pitchValue = parseFloat(document.getElementById("pitch").value);
+  
+    const utterance = new SpeechSynthesisUtterance("Mita vittua Timo?");
+    utterance.lang = "fi-FI";
+    utterance.pitch = pitchValue;  // <-- change pitch here
+  
+    speechSynthesis.speak(utterance);
+  }
+  </script>

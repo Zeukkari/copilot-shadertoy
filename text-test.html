@@ -38,6 +38,7 @@
         precision mediump float;
         
         uniform vec2 u_resolution;
+        uniform float u_time;
         varying vec2 v_uv;
         
         // Character rendering using distance fields
@@ -185,6 +186,26 @@
         void main() {
             vec2 uv = v_uv;
             
+            // Bounce animation from black to white over 5 minutes (300 seconds)
+            float cycleTime = 300.0; // 5 minutes in seconds
+            float t = mod(u_time, cycleTime * 2.0); // Full cycle (black->white->black)
+            
+            // Bounce effect: goes from 0 to 1 and back to 0
+            float bounce;
+            if (t < cycleTime) {
+                // First half: 0 to 1 (black to white)
+                bounce = t / cycleTime;
+            } else {
+                // Second half: 1 to 0 (white to black)
+                bounce = 2.0 - (t / cycleTime);
+            }
+            
+            // Apply bounce easing for smoother animation
+            bounce = bounce * bounce * (3.0 - 2.0 * bounce); // Smoothstep-like easing
+            
+            // Background color animates from black (0) to white (1)
+            vec3 backgroundColor = vec3(bounce);
+            
             // Render II (two capital I's) in the center
             float scale = 0.3; // Scale for the letters
             float charWidth = 0.5;
@@ -202,8 +223,8 @@
             charAlpha = renderChar(uv, 73, i2Pos, scale);
             result = min(result, charAlpha);
             
-            vec3 textColor = vec3(0.0, 0.0, 0.0); // Black text
-            vec3 backgroundColor = vec3(1.0, 1.0, 1.0); // White background
+            // Text color: invert based on background (black on light, white on dark)
+            vec3 textColor = vec3(1.0 - bounce);
             vec3 finalColor = mix(backgroundColor, textColor, 1.0 - result);
             
             gl_FragColor = vec4(finalColor, 1.0);
@@ -269,6 +290,10 @@
         
         // Get uniform locations
         const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
+        const timeLocation = gl.getUniformLocation(program, "u_time");
+        
+        // Animation start time
+        const startTime = Date.now();
         
         // Render function
         function render() {
@@ -281,11 +306,15 @@
                 gl.viewport(0, 0, width, height);
             }
             
-            gl.clearColor(1.0, 1.0, 1.0, 1.0);
+            // Calculate time in seconds
+            const currentTime = (Date.now() - startTime) / 1000.0;
+            
+            gl.clearColor(0.0, 0.0, 0.0, 1.0);
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.useProgram(program);
             
             gl.uniform2f(resolutionLocation, width, height);
+            gl.uniform1f(timeLocation, currentTime);
             gl.drawArrays(gl.TRIANGLES, 0, 6);
             
             requestAnimationFrame(render);

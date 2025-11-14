@@ -4,36 +4,7 @@ let speechPhase = 0.0; // For animation effects
 let speechStartTime = 0;
 let speechInterval = null;
 
-function sayIt() {
-    const text = "Mita vittua Timo";
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "fi-FI";         // force Finnish
-    utterance.rate = 0.8;               // natural speed
-    utterance.pitch = 0.5;              // natural pitch
-    utterance.volume = 1;
-
-    // Try to pick a Finnish voice if available
-    const voices = speechSynthesis.getVoices();
-    const finnishVoice = voices.find(v =>
-        v.lang.toLowerCase().includes("fi")
-    );
-    if (finnishVoice) utterance.voice = finnishVoice;
-
-    // Track speech state
-    utterance.onstart = () => {
-        isSpeaking = true;
-        speechStartTime = Date.now();
-        speechPhase = 1.0; // Start at full intensity
-    };
-
-    utterance.onend = () => {
-        isSpeaking = false;
-        speechPhase = 0.0;
-    };
-
-    speechSynthesis.speak(utterance);
-}
+// sayIt function moved to index.html
 
 // Start speech on 10 second intervals
 function startSpeechInterval() {
