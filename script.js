@@ -218,6 +218,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof startSpeechInterval === 'function') {
           startSpeechInterval();
         }
+        // Hide the button after starting
+        playButton.classList.add('hidden');
       }
     } catch (e) {
       console.log('Audio start failed, waiting for user interaction:', e);
