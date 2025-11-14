@@ -3,6 +3,8 @@ const canvas = document.querySelector("canvas");
 // Initialize audio context (lazy initialization on first user interaction)
 let audioCtx = null;
 let isPlaying = false;
+let audioStarted = false; // Track if audio has started
+let audioStartTime = 0; // Timestamp when audio started
 let beatTime = 0; // Current beat time (0-1, cycles with beat)
 let beatPhase = 0; // Beat phase for animation
 let lastBeatTime = 0;
@@ -194,22 +196,34 @@ document.addEventListener('DOMContentLoaded', () => {
   const playButton = document.getElementById("play");
   
   // Function to initialize and start audio
-  const startAudio = () => {
-    // Initialize audio context on first interaction (required by browsers)
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const startAudio = async () => {
+    try {
+      // Initialize audio context (required by browsers)
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      
+      // Resume audio context if suspended (required after user interaction)
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+      
+      // Start playing beat loop
+      if (!isPlaying) {
+        isPlaying = true;
+        audioStarted = true; // Mark audio as started
+        audioStartTime = Date.now(); // Record start time for transition
+        playBeat();
+        // Start speech interval when audio starts
+        if (typeof startSpeechInterval === 'function') {
+          startSpeechInterval();
+        }
+      }
+    } catch (e) {
+      console.log('Audio start failed, waiting for user interaction:', e);
+      return false;
     }
-    
-    // Resume audio context if suspended (required after user interaction)
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
-    
-    // Start playing beat loop
-    if (!isPlaying) {
-      isPlaying = true;
-      playBeat();
-    }
+    return true;
   };
   
   // Setup button click handler
@@ -217,19 +231,27 @@ document.addEventListener('DOMContentLoaded', () => {
     playButton.addEventListener("click", startAudio);
   }
   
-  // Autoplay on any user interaction (click, touch, keypress)
-  const enableAutoplay = () => {
-    startAudio();
-    // Remove listeners after first interaction
-    document.removeEventListener('click', enableAutoplay);
-    document.removeEventListener('touchstart', enableAutoplay);
-    document.removeEventListener('keydown', enableAutoplay);
+  // Function to enable autoplay on user interaction
+  const enableAutoplay = async () => {
+    const success = await startAudio();
+    if (success) {
+      // Remove listeners after successful start
+      document.removeEventListener('click', enableAutoplay);
+      document.removeEventListener('touchstart', enableAutoplay);
+      document.removeEventListener('keydown', enableAutoplay);
+      document.removeEventListener('mousedown', enableAutoplay);
+    }
   };
   
-  // Try to autoplay on first user interaction
-  document.addEventListener('click', enableAutoplay, { once: true });
-  document.addEventListener('touchstart', enableAutoplay, { once: true });
-  document.addEventListener('keydown', enableAutoplay, { once: true });
+  // Try to autoplay immediately on load (will likely fail due to browser policy)
+  startAudio().catch(() => {
+    // If autoplay fails, wait for user interaction
+    // Listen for any user interaction to start audio
+    document.addEventListener('click', enableAutoplay, { once: true });
+    document.addEventListener('touchstart', enableAutoplay, { once: true });
+    document.addEventListener('keydown', enableAutoplay, { once: true });
+    document.addEventListener('mousedown', enableAutoplay, { once: true });
+  });
 });
 
 const gl = getRenderingContext();
@@ -266,6 +288,10 @@ const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
 const timeLocation = gl.getUniformLocation(program, "u_time");
 const beatTimeLocation = gl.getUniformLocation(program, "u_beatTime");
 const beatPhaseLocation = gl.getUniformLocation(program, "u_beatPhase");
+const audioStartedLocation = gl.getUniformLocation(program, "u_audioStarted");
+const transitionProgressLocation = gl.getUniformLocation(program, "u_transitionProgress");
+const speechPhaseLocation = gl.getUniformLocation(program, "u_speechPhase");
+const isSpeakingLocation = gl.getUniformLocation(program, "u_isSpeaking");
 
 // Animation start time
 let startTime = Date.now();
@@ -290,15 +316,29 @@ function render() {
   // Decay beat phase over time
   beatPhase *= 0.92; // Fade out beat pulse
   
+  // Calculate transition progress (0.0 to 1.0 over 3 seconds)
+  let transitionProgress = 0.0;
+  if (audioStarted && audioStartTime > 0) {
+    const transitionDuration = 3000; // 3 seconds
+    const elapsed = Date.now() - audioStartTime;
+    transitionProgress = Math.min(1.0, elapsed / transitionDuration);
+    // Smooth easing function (ease-out cubic)
+    transitionProgress = 1.0 - Math.pow(1.0 - transitionProgress, 3.0);
+  }
+  
   // Clear and draw
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(program);
   
   // Set uniforms
   gl.uniform2f(resolutionLocation, width, height);
-  gl.uniform1f(timeLocation, currentTime);
+  gl.uniform1f(timeLocation, audioStarted ? currentTime : 0.0); // Freeze time if audio hasn't started
   gl.uniform1f(beatTimeLocation, beatTime);
   gl.uniform1f(beatPhaseLocation, beatPhase);
+  gl.uniform1i(audioStartedLocation, audioStarted ? 1 : 0);
+  gl.uniform1f(transitionProgressLocation, transitionProgress);
+  gl.uniform1f(speechPhaseLocation, typeof speechPhase !== 'undefined' ? speechPhase : 0.0);
+  gl.uniform1i(isSpeakingLocation, typeof isSpeaking !== 'undefined' && isSpeaking ? 1 : 0);
   
   // Draw full-screen quad (2 triangles = 6 vertices)
   gl.drawArrays(gl.TRIANGLES, 0, 6);
