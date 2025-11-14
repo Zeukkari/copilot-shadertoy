@@ -186,25 +186,28 @@
         void main() {
             vec2 uv = v_uv;
             
-            // Bounce animation from black to white over 5 minutes (300 seconds)
+            // Bounce animation from dark cyan to bright cyan over 5 minutes (300 seconds)
             float cycleTime = 300.0; // 5 minutes in seconds
-            float t = mod(u_time, cycleTime * 2.0); // Full cycle (black->white->black)
+            float t = mod(u_time, cycleTime * 2.0); // Full cycle (dark->bright->dark)
             
             // Bounce effect: goes from 0 to 1 and back to 0
             float bounce;
             if (t < cycleTime) {
-                // First half: 0 to 1 (black to white)
+                // First half: 0 to 1 (dark to bright)
                 bounce = t / cycleTime;
             } else {
-                // Second half: 1 to 0 (white to black)
+                // Second half: 1 to 0 (bright to dark)
                 bounce = 2.0 - (t / cycleTime);
             }
             
             // Apply bounce easing for smoother animation
             bounce = bounce * bounce * (3.0 - 2.0 * bounce); // Smoothstep-like easing
             
-            // Background color animates from black (0) to white (1)
-            vec3 backgroundColor = vec3(bounce);
+            // Background color animates from dark cyan to bright cyan
+            // Cyan is RGB(0, 1, 1), so we interpolate from dark (0, 0.3, 0.3) to bright (0, 1, 1)
+            vec3 darkCyan = vec3(0.0, 0.3, 0.3);
+            vec3 brightCyan = vec3(0.0, 1.0, 1.0);
+            vec3 backgroundColor = mix(darkCyan, brightCyan, bounce);
             
             // Render II (two capital I's) in the center
             float scale = 0.3; // Scale for the letters
@@ -223,8 +226,8 @@
             charAlpha = renderChar(uv, 73, i2Pos, scale);
             result = min(result, charAlpha);
             
-            // Text color: invert based on background (black on light, white on dark)
-            vec3 textColor = vec3(1.0 - bounce);
+            // Text color: white for visibility on cyan background
+            vec3 textColor = vec3(1.0, 1.0, 1.0);
             vec3 finalColor = mix(backgroundColor, textColor, 1.0 - result);
             
             gl_FragColor = vec4(finalColor, 1.0);
