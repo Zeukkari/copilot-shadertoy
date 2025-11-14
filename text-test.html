@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text Rendering Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #fff;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <canvas></canvas>
+    <script type="x-shader/x-vertex" id="vertex-shader">
+        attribute vec2 a_position;
+        varying vec2 v_uv;
+        
+        void main() {
+            v_uv = a_position * 0.5 + 0.5; // Convert from -1..1 to 0..1
+            gl_Position = vec4(a_position, 0.0, 1.0);
+        }
+    </script>
+    <script type="x-shader/x-fragment" id="fragment-shader">
+        precision mediump float;
+        
+        uniform vec2 u_resolution;
+        varying vec2 v_uv;
+        
+        // Character rendering using distance fields
+        float sdBox(vec2 p, vec2 b) {
+            vec2 d = abs(p) - b;
+            return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+        }
+        
+        float sdSegment(vec2 p, vec2 a, vec2 b) {
+            vec2 pa = p - a;
+            vec2 ba = b - a;
+            float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+            return length(pa - ba * h);
+        }
+        
+        // Render a character using proper letter shapes
+        float renderChar(vec2 uv, int char, vec2 pos, float scale) {
+            vec2 p = (uv - pos) / scale;
+            float d = 1.0;
+            float stroke = 0.08;
+            
+            // M
+            if (char == 77) {
+                d = min(d, sdBox(p - vec2(-0.25, 0.0), vec2(0.04, 0.35)));
+                d = min(d, sdBox(p - vec2(0.25, 0.0), vec2(0.04, 0.35)));
+                d = min(d, sdSegment(p, vec2(-0.25, 0.35), vec2(0.0, 0.0)));
+                d = min(d, sdSegment(p, vec2(0.0, 0.0), vec2(0.25, 0.35)));
+            }
+            // i
+            else if (char == 105) {
+                d = min(d, sdBox(p - vec2(0.0, 0.3), vec2(0.03, 0.08)));
+                d = min(d, sdBox(p - vec2(0.0, -0.1), vec2(0.03, 0.3)));
+            }
+            // I (capital)
+            else if (char == 73) {
+                d = min(d, sdBox(p - vec2(0.0, 0.0), vec2(0.03, 0.35)));
+            }
+            // t
+            else if (char == 116) {
+                d = min(d, sdBox(p - vec2(0.0, 0.0), vec2(0.03, 0.35)));
+                d = min(d, sdBox(p - vec2(0.0, 0.3), vec2(0.12, 0.03)));
+            }
+            // T (capital)
+            else if (char == 84) {
+                d = min(d, sdBox(p - vec2(0.0, 0.0), vec2(0.03, 0.35)));
+                d = min(d, sdBox(p - vec2(0.0, 0.3), vec2(0.15, 0.06))); // Thicker top bar
+            }
+            // ä (a with dots)
+            else if (char == 228) {
+                d = min(d, sdBox(p - vec2(-0.12, 0.0), vec2(0.04, 0.3)));
+                d = min(d, sdBox(p - vec2(0.12, 0.0), vec2(0.04, 0.3)));
+                d = min(d, sdBox(p - vec2(0.0, 0.2), vec2(0.16, 0.04)));
+                d = min(d, sdBox(p - vec2(0.0, -0.15), vec2(0.16, 0.04)));
+                d = min(d, sdBox(p - vec2(-0.12, 0.35), vec2(0.03, 0.03)));
+                d = min(d, sdBox(p - vec2(0.12, 0.35), vec2(0.03, 0.03)));
+            }
+            // v
+            else if (char == 118) {
+                d = min(d, sdSegment(p, vec2(-0.12, 0.3), vec2(0.0, -0.3)));
+                d = min(d, sdSegment(p, vec2(0.0, -0.3), vec2(0.12, 0.3)));
+            }
+            // u
+            else if (char == 117) {
+                d = min(d, sdBox(p - vec2(-0.12, -0.1), vec2(0.04, 0.3)));
+                d = min(d, sdBox(p - vec2(0.12, -0.1), vec2(0.04, 0.3)));
+                d = min(d, sdBox(p - vec2(0.0, -0.3), vec2(0.16, 0.04)));
+            }
+            // a
+            else if (char == 97) {
+                d = min(d, sdBox(p - vec2(-0.12, 0.0), vec2(0.04, 0.3)));
+                d = min(d, sdBox(p - vec2(0.12, 0.0), vec2(0.04, 0.3)));
+                d = min(d, sdBox(p - vec2(0.0, 0.2), vec2(0.16, 0.04)));
+                d = min(d, sdBox(p - vec2(0.0, -0.15), vec2(0.16, 0.04)));
+            }
+            // o
+            else if (char == 111) {
+                d = min(d, sdBox(p - vec2(-0.12, 0.0), vec2(0.04, 0.3)));
+                d = min(d, sdBox(p - vec2(0.12, 0.0), vec2(0.04, 0.3)));
+                d = min(d, sdBox(p - vec2(0.0, 0.2), vec2(0.16, 0.04)));
+                d = min(d, sdBox(p - vec2(0.0, -0.2), vec2(0.16, 0.04)));
+            }
+            // m
+            else if (char == 109) {
+                d = min(d, sdBox(p - vec2(-0.2, -0.1), vec2(0.04, 0.3)));
+                d = min(d, sdBox(p - vec2(0.0, -0.1), vec2(0.04, 0.3)));
+                d = min(d, sdBox(p - vec2(0.2, -0.1), vec2(0.04, 0.3)));
+                d = min(d, sdSegment(p, vec2(-0.2, 0.2), vec2(0.0, -0.1)));
+                d = min(d, sdSegment(p, vec2(0.0, -0.1), vec2(0.2, 0.2)));
+                d = min(d, sdBox(p - vec2(0.0, 0.2), vec2(0.24, 0.04)));
+            }
+            // space
+            else if (char == 32) {
+                return 1.0;
+            }
+            // ?
+            else if (char == 63) {
+                d = min(d, sdBox(p - vec2(0.0, 0.2), vec2(0.08, 0.08)));
+                d = min(d, sdBox(p - vec2(0.0, 0.0), vec2(0.03, 0.15)));
+                d = min(d, sdBox(p - vec2(0.0, -0.25), vec2(0.03, 0.05)));
+            }
+            
+            return smoothstep(stroke, stroke * 0.5, d);
+        }
+        
+        // Render text string (centered and scaled to fill screen)
+        float renderText(vec2 uv, float scale) {
+            float result = 1.0;
+            float charWidth = 0.5;
+            float xOffset = -4.25; // Center the text (18 chars * 0.5 / 2)
+            
+            // "Mitä vittua Timo?" - note: capital T in Timo
+            int chars[18];
+            chars[0] = 77;   // M
+            chars[1] = 105;  // i
+            chars[2] = 228;  // ä
+            chars[3] = 116;  // t
+            chars[4] = 97;   // a
+            chars[5] = 32;   // space
+            chars[6] = 118;  // v
+            chars[7] = 105;  // i
+            chars[8] = 116;  // t
+            chars[9] = 116;  // t
+            chars[10] = 117; // u
+            chars[11] = 97;  // a
+            chars[12] = 32;  // space
+            chars[13] = 84;  // T (capital)
+            chars[14] = 105; // i
+            chars[15] = 109; // m
+            chars[16] = 111; // o
+            chars[17] = 63;  // ?
+            
+            // Center vertically and horizontally
+            vec2 centerPos = vec2(0.5, 0.5);
+            
+            for (int i = 0; i < 18; i++) {
+                vec2 charPos = centerPos + vec2(xOffset * scale, 0.0);
+                float charAlpha = renderChar(uv, chars[i], charPos, scale);
+                result = min(result, charAlpha);
+                xOffset += charWidth;
+            }
+            
+            return result;
+        }
+        
+        void main() {
+            vec2 uv = v_uv;
+            
+            // Render II (two capital I's) in the center
+            float scale = 0.3; // Scale for the letters
+            float charWidth = 0.5;
+            vec2 centerPos = vec2(0.5, 0.5);
+            
+            float result = 1.0;
+            
+            // First I - positioned to the left of center
+            vec2 i1Pos = centerPos + vec2(-charWidth * scale * 0.5, 0.0);
+            float charAlpha = renderChar(uv, 73, i1Pos, scale); // 73 is capital I
+            result = min(result, charAlpha);
+            
+            // Second I - positioned to the right of center
+            vec2 i2Pos = centerPos + vec2(charWidth * scale * 0.5, 0.0);
+            charAlpha = renderChar(uv, 73, i2Pos, scale);
+            result = min(result, charAlpha);
+            
+            vec3 textColor = vec3(0.0, 0.0, 0.0); // Black text
+            vec3 backgroundColor = vec3(1.0, 1.0, 1.0); // White background
+            vec3 finalColor = mix(backgroundColor, textColor, 1.0 - result);
+            
+            gl_FragColor = vec4(finalColor, 1.0);
+        }
+    </script>
+    <script>
+        const canvas = document.querySelector("canvas");
+        const gl = canvas.getContext("webgl");
+        
+        if (!gl) {
+            alert("WebGL not supported");
+        }
+        
+        // Compile shader
+        function compileShader(source, type) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error("Shader compile error:", gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            
+            return shader;
+        }
+        
+        // Get shader sources
+        const vertexShaderSource = document.getElementById("vertex-shader").textContent;
+        const fragmentShaderSource = document.getElementById("fragment-shader").textContent;
+        
+        // Compile shaders
+        const vertexShader = compileShader(vertexShaderSource, gl.VERTEX_SHADER);
+        const fragmentShader = compileShader(fragmentShaderSource, gl.FRAGMENT_SHADER);
+        
+        // Create program
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error("Program link error:", gl.getProgramInfoLog(program));
+        }
+        
+        // Create full-screen quad
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            -1, -1,
+             1, -1,
+            -1,  1,
+            -1,  1,
+             1, -1,
+             1,  1
+        ]), gl.STATIC_DRAW);
+        
+        // Set up attributes
+        const positionLocation = gl.getAttribLocation(program, "a_position");
+        gl.enableVertexAttribArray(positionLocation);
+        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+        
+        // Get uniform locations
+        const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
+        
+        // Render function
+        function render() {
+            const width = canvas.clientWidth;
+            const height = canvas.clientHeight;
+            
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+                gl.viewport(0, 0, width, height);
+            }
+            
+            gl.clearColor(1.0, 1.0, 1.0, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.useProgram(program);
+            
+            gl.uniform2f(resolutionLocation, width, height);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            
+            requestAnimationFrame(render);
+        }
+        
+        render();
+    </script>
+</body>
+</html>
+
