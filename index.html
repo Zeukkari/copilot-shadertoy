@@ -31,6 +31,8 @@
   
   uniform vec2 u_resolution;
   uniform float u_time;
+  uniform float u_beatTime;
+  uniform float u_beatPhase;
   
   varying vec2 v_uv;
   
@@ -79,18 +81,21 @@
   vec2 crtDistort(vec2 uv) {
     uv = (uv - 0.5) * 2.0;
     
-    // Radial distortion
+    // Radial distortion with beat sync
     float dist = length(uv);
-    uv *= 1.0 + 0.15 * (uv.x * uv.x + uv.y * uv.y);
+    float beatDistortion = 1.0 + 0.15 * (uv.x * uv.x + uv.y * uv.y);
+    beatDistortion += u_beatPhase * 0.1; // Pulse on beat
+    uv *= beatDistortion;
     
-    // Psychedelic wave distortion (slowed down)
-    float waveX = sin(uv.y * 3.0 + u_time * 0.5) * 0.1;
-    float waveY = cos(uv.x * 3.0 + u_time * 0.375) * 0.1;
+    // Psychedelic wave distortion (slowed down) with beat sync
+    float waveIntensity = 0.1 + u_beatPhase * 0.05;
+    float waveX = sin(uv.y * 3.0 + u_time * 0.5) * waveIntensity;
+    float waveY = cos(uv.x * 3.0 + u_time * 0.375) * waveIntensity;
     uv += vec2(waveX, waveY);
     
-    // Spiral distortion (slowed down)
+    // Spiral distortion (slowed down) with beat sync
     float angle = atan(uv.y, uv.x) + dist * 2.0 + u_time * 0.25;
-    float spiral = sin(angle * 3.0) * 0.05;
+    float spiral = sin(angle * 3.0) * (0.05 + u_beatPhase * 0.03);
     uv += vec2(cos(angle), sin(angle)) * spiral;
     
     return (uv + 1.0) * 0.5;
@@ -100,15 +105,15 @@
     // Apply CRT screen distortion
     vec2 distortedUV = crtDistort(v_uv);
     
-    // Enhanced chromatic aberration with psychedelic separation
-    float aberration = 0.008 + 0.005 * sin(u_time * 0.75);
+    // Enhanced chromatic aberration with psychedelic separation and beat sync
+    float aberration = 0.008 + 0.005 * sin(u_time * 0.75) + u_beatPhase * 0.01;
     vec2 offsetR = vec2(
-      aberration * sin(u_time * 1.0 + distortedUV.y * 10.0),
+      aberration * sin(u_time * 1.0 + distortedUV.y * 10.0 + u_beatPhase * 2.0),
       aberration * 0.5 * cos(u_time * 0.875 + distortedUV.x * 8.0)
     );
     vec2 offsetG = vec2(0.0, 0.0);
     vec2 offsetB = vec2(
-      -aberration * sin(u_time * 1.0 + distortedUV.y * 10.0),
+      -aberration * sin(u_time * 1.0 + distortedUV.y * 10.0 + u_beatPhase * 2.0),
       -aberration * 0.5 * cos(u_time * 0.875 + distortedUV.x * 8.0)
     );
     
@@ -188,11 +193,12 @@
     ) * vec3(m4R, m4G, m4B) * 0.35;
     finalColor += color4;
     
-    // Enhanced contrast and color enhancement
-    finalColor = pow(finalColor, vec3(0.75)); // Stronger contrast curve
+    // Enhanced contrast and color enhancement with beat sync
+    float contrastBoost = 0.75 - u_beatPhase * 0.1; // More contrast on beat
+    finalColor = pow(finalColor, vec3(contrastBoost));
     
-    // Intense color cycling/shifting (slowed down)
-    float colorShift = u_time * 0.125;
+    // Intense color cycling/shifting (slowed down) with beat sync
+    float colorShift = u_time * 0.125 + u_beatPhase * 0.5; // Shift colors on beat
     vec3 colorShiftVec = vec3(
       sin(colorShift),
       sin(colorShift + 2.094), // 120 degrees
@@ -200,12 +206,17 @@
     ) * 0.3 + 0.7;
     finalColor *= colorShiftVec;
     
+    // Beat-synced brightness pulse
+    finalColor *= (1.0 + u_beatPhase * 0.3);
+    
     // Increased saturation and contrast
     float luminance = dot(finalColor, vec3(0.299, 0.587, 0.114));
-    finalColor = mix(vec3(luminance), finalColor, 1.8); // Higher saturation
+    float saturation = 1.8 + u_beatPhase * 0.4; // More saturation on beat
+    finalColor = mix(vec3(luminance), finalColor, saturation);
     
-    // Contrast boost
-    finalColor = (finalColor - 0.5) * 1.5 + 0.5;
+    // Contrast boost with beat sync
+    float contrast = 1.5 + u_beatPhase * 0.3;
+    finalColor = (finalColor - 0.5) * contrast + 0.5;
     
     finalColor = clamp(finalColor, 0.0, 1.0);
     
