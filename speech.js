@@ -32,8 +32,17 @@ function stopSpeechInterval() {
     speechPhase = 0.0;
 }
 
-// Voices may load asynchronously
-speechSynthesis.onvoiceschanged = () => {};
+// Voices may load asynchronously - update global voices when they load
+if (speechSynthesis.onvoiceschanged !== undefined) {
+    speechSynthesis.onvoiceschanged = () => {
+        if (typeof availableVoices !== 'undefined') {
+            availableVoices = speechSynthesis.getVoices();
+            if (typeof voicesLoaded !== 'undefined') {
+                voicesLoaded = true;
+            }
+        }
+    };
+}
 
 // Update speech phase for animation (decay when not speaking)
 function updateSpeechPhase() {

@@ -228,9 +228,29 @@ document.addEventListener('DOMContentLoaded', () => {
     return true;
   };
   
-  // Setup button click handler
+  // Setup button handlers for both desktop and mobile
   if (playButton) {
-    playButton.addEventListener("click", startAudio);
+    let touchHandled = false;
+    
+    // Handle touch events for mobile
+    playButton.addEventListener("touchstart", (e) => {
+      touchHandled = false;
+    }, { passive: true });
+    
+    playButton.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      touchHandled = true;
+      startAudio();
+    });
+    
+    // Handle click for desktop (but prevent if touch was used to avoid double-firing)
+    playButton.addEventListener("click", (e) => {
+      if (!touchHandled) {
+        startAudio();
+      }
+      touchHandled = false;
+    });
   }
   
   // Function to enable autoplay on user interaction
