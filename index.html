@@ -75,6 +75,76 @@
     return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
   }
   
+  // Check if point is inside triangle using barycentric coordinates
+  float pointInTriangle(vec2 p, vec2 a, vec2 b, vec2 c) {
+    vec2 v0 = c - a;
+    vec2 v1 = b - a;
+    vec2 v2 = p - a;
+    
+    float dot00 = dot(v0, v0);
+    float dot01 = dot(v0, v1);
+    float dot02 = dot(v0, v2);
+    float dot11 = dot(v1, v1);
+    float dot12 = dot(v1, v2);
+    
+    float invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01);
+    float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+    float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+    
+    return (u >= 0.0) && (v >= 0.0) && (u + v <= 1.0) ? 1.0 : 0.0;
+  }
+  
+  // Check if point is inside hexagon
+  float pointInHexagon(vec2 p, vec2 center, float radius) {
+    vec2 pos = p - center;
+    float angle = atan(pos.y, pos.x);
+    float dist = length(pos);
+    
+    // Hexagon has 6 sides, so we check distance to each edge
+    float angleStep = 3.14159 / 3.0; // 60 degrees in radians
+    float normalizedAngle = mod(angle + angleStep * 0.5, angleStep) - angleStep * 0.5;
+    float edgeDist = radius * cos(angleStep * 0.5) / cos(normalizedAngle);
+    
+    return dist <= edgeDist ? 1.0 : 0.0;
+  }
+  
+  // Render shape that morphs between triangle and hexagon
+  float renderMorphingShape(vec2 uv) {
+    // Animation cycle: 30 seconds triangle -> hexagon, 30 seconds hexagon -> triangle
+    float cycleTime = 30.0;
+    float fullCycle = cycleTime * 2.0; // 60 seconds total
+    float t = mod(u_time, fullCycle);
+    float morphFactor;
+    
+    if (t < cycleTime) {
+      // First 30 seconds: triangle (0) to hexagon (1)
+      morphFactor = t / cycleTime;
+    } else {
+      // Next 30 seconds: hexagon (1) to triangle (0)
+      float t2 = t - cycleTime;
+      morphFactor = 1.0 - (t2 / cycleTime);
+    }
+    
+    // Ultra-smooth interpolation using smootherstep (quintic easing)
+    // This provides a much smoother transition than regular smoothstep
+    float t_smooth = morphFactor;
+    morphFactor = t_smooth * t_smooth * t_smooth * (t_smooth * (t_smooth * 6.0 - 15.0) + 10.0);
+    
+    // Triangle shape
+    vec2 v0 = vec2(0.5, 0.9);   // Top center
+    vec2 v1 = vec2(0.1, 0.1);   // Bottom left
+    vec2 v2 = vec2(0.9, 0.1);   // Bottom right
+    float triangleAlpha = pointInTriangle(uv, v0, v1, v2);
+    
+    // Hexagon shape (centered, scaled to fill screen)
+    vec2 center = vec2(0.5, 0.5);
+    float hexRadius = 0.4;
+    float hexAlpha = pointInHexagon(uv, center, hexRadius);
+    
+    // Morph between triangle and hexagon with smooth transition
+    return mix(triangleAlpha, hexAlpha, morphFactor);
+  }
+  
   // Screen curvature/distortion with hallucinogenic warping
   vec2 crtDistort(vec2 uv) {
     uv = (uv - 0.5) * 2.0;
@@ -324,6 +394,11 @@
       // Invert colors for fractal areas (black becomes white)
       finalColor = 1.0 - finalColor;
     }
+    
+    // Render red shape (morphing triangle/hexagon) with 50% opacity
+    float shapeAlpha = renderMorphingShape(v_uv);
+    vec3 shapeColor = vec3(1.0, 0.0, 0.0); // Red
+    finalColor = mix(finalColor, shapeColor, shapeAlpha * 0.5); // 50% opacity
     
     gl_FragColor = vec4(finalColor, 1.0);
   }
