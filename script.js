@@ -31,73 +31,14 @@ initializeAttributes();
 
 // Get uniform locations
 const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
-const centerLocation = gl.getUniformLocation(program, "u_center");
-const zoomLocation = gl.getUniformLocation(program, "u_zoom");
-const maxIterationsLocation = gl.getUniformLocation(program, "u_maxIterations");
+const timeLocation = gl.getUniformLocation(program, "u_time");
 
-// Mandelbrot parameters (mutable for UI controls)
-let center = [-0.5, 0.0]; // Default center of Mandelbrot set
-let zoom = 1.0;
-let maxIterations = 100;
+// Animation start time
+let startTime = Date.now();
 
-// Initialize UI controls
-function initializeControls() {
-  const centerXSlider = document.getElementById('centerX');
-  const centerYSlider = document.getElementById('centerY');
-  const zoomSlider = document.getElementById('zoom');
-  const maxIterationsSlider = document.getElementById('maxIterations');
-  const resetBtn = document.getElementById('resetBtn');
-  
-  const centerXValue = document.getElementById('centerXValue');
-  const centerYValue = document.getElementById('centerYValue');
-  const zoomValue = document.getElementById('zoomValue');
-  const maxIterationsValue = document.getElementById('maxIterationsValue');
-  
-  // Update center X
-  centerXSlider.addEventListener('input', (e) => {
-    center[0] = parseFloat(e.target.value);
-    centerXValue.textContent = center[0].toFixed(3);
-  });
-  
-  // Update center Y
-  centerYSlider.addEventListener('input', (e) => {
-    center[1] = parseFloat(e.target.value);
-    centerYValue.textContent = center[1].toFixed(3);
-  });
-  
-  // Update zoom (using logarithmic scale for better control)
-  zoomSlider.addEventListener('input', (e) => {
-    // Convert linear slider value (0.1-1000) to logarithmic scale
-    const sliderValue = parseFloat(e.target.value);
-    zoom = sliderValue;
-    zoomValue.textContent = zoom.toFixed(2);
-  });
-  
-  // Update max iterations
-  maxIterationsSlider.addEventListener('input', (e) => {
-    maxIterations = parseInt(e.target.value);
-    maxIterationsValue.textContent = maxIterations;
-  });
-  
-  // Reset button
-  resetBtn.addEventListener('click', () => {
-    center = [-0.5, 0.0];
-    zoom = 1.0;
-    maxIterations = 100;
-    
-    centerXSlider.value = center[0];
-    centerYSlider.value = center[1];
-    zoomSlider.value = zoom;
-    maxIterationsSlider.value = maxIterations;
-    
-    centerXValue.textContent = center[0].toFixed(3);
-    centerYValue.textContent = center[1].toFixed(3);
-    zoomValue.textContent = zoom.toFixed(2);
-    maxIterationsValue.textContent = maxIterations;
-  });
-}
-
-initializeControls();
+// Enable blending for additive effect
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
 function render() {
   // Update viewport if canvas size changed
@@ -109,15 +50,16 @@ function render() {
     gl.viewport(0, 0, width, height);
   }
   
+  // Calculate time in seconds
+  const currentTime = (Date.now() - startTime) / 1000.0;
+  
   // Clear and draw
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(program);
   
   // Set uniforms
   gl.uniform2f(resolutionLocation, width, height);
-  gl.uniform2f(centerLocation, center[0], center[1]);
-  gl.uniform1f(zoomLocation, zoom);
-  gl.uniform1i(maxIterationsLocation, maxIterations);
+  gl.uniform1f(timeLocation, currentTime);
   
   // Draw full-screen quad (2 triangles = 6 vertices)
   gl.drawArrays(gl.TRIANGLES, 0, 6);

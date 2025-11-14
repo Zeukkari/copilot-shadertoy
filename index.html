@@ -11,28 +11,10 @@
 <p>Hello World! Hello GLSL!</p>
 <canvas>Your browser does not seem to support HTML canvas.</canvas>
 <div id="controls" class="controls-panel">
-  <h3>Fractal Controls</h3>
-  <div class="control-group">
-    <label for="centerX">Center X:</label>
-    <input type="range" id="centerX" min="-2" max="1" step="0.001" value="-0.5">
-    <span class="value-display" id="centerXValue">-0.5</span>
-  </div>
-  <div class="control-group">
-    <label for="centerY">Center Y:</label>
-    <input type="range" id="centerY" min="-1.5" max="1.5" step="0.001" value="0.0">
-    <span class="value-display" id="centerYValue">0.0</span>
-  </div>
-  <div class="control-group">
-    <label for="zoom">Zoom:</label>
-    <input type="range" id="zoom" min="0.1" max="1000" step="0.1" value="1.0">
-    <span class="value-display" id="zoomValue">1.0</span>
-  </div>
-  <div class="control-group">
-    <label for="maxIterations">Max Iterations:</label>
-    <input type="range" id="maxIterations" min="10" max="500" step="10" value="100">
-    <span class="value-display" id="maxIterationsValue">100</span>
-  </div>
-  <button id="resetBtn" class="reset-btn">Reset to Default</button>
+  <h3>Multi-Fractal Animation</h3>
+  <p style="color: #aaa; font-size: 11px; margin-bottom: 15px;">
+    4 animated fractal layers with additive blending
+  </p>
 </div>
 <script type="x-shader/x-vertex" id="vertex-shader">
   attribute vec2 a_position;
@@ -47,52 +29,106 @@
   precision mediump float;
   
   uniform vec2 u_resolution;
-  uniform vec2 u_center;
-  uniform float u_zoom;
-  uniform int u_maxIterations;
+  uniform float u_time;
   
   varying vec2 v_uv;
   
-  void main() {
-    // Map pixel coordinates to complex plane
+  // Mandelbrot computation function
+  float mandelbrot(vec2 center, float zoom, float rotation, int maxIter) {
     vec2 c = (v_uv - 0.5) * 2.0;
-    c.x *= u_resolution.x / u_resolution.y; // Aspect ratio correction
-    c = c / u_zoom + u_center;
+    c.x *= u_resolution.x / u_resolution.y;
     
-    // Mandelbrot iteration: z = z^2 + c
+    // Apply rotation
+    float cosR = cos(rotation);
+    float sinR = sin(rotation);
+    c = vec2(c.x * cosR - c.y * sinR, c.x * sinR + c.y * cosR);
+    
+    // Apply zoom and center
+    c = c / zoom + center;
+    
     vec2 z = vec2(0.0);
     int iterations = 0;
     
     for (int i = 0; i < 256; i++) {
-      if (i >= u_maxIterations) break;
+      if (i >= maxIter) break;
       
-      // z = z^2 + c
       float x = (z.x * z.x - z.y * z.y) + c.x;
       float y = (z.x * z.y * 2.0) + c.y;
       z = vec2(x, y);
       
-      // Check if escaped
       if (dot(z, z) > 4.0) {
         iterations = i;
         break;
       }
     }
     
-    // Color based on iterations
-    float t = float(iterations) / float(u_maxIterations);
-    
-    if (iterations == u_maxIterations) {
-      // Inside the set - black
-      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-    } else {
-      // Outside the set - colorful gradient
-      vec3 color = vec3(
-        0.5 + 0.5 * cos(3.0 + t * 10.0),
-        0.5 + 0.5 * cos(2.0 + t * 10.0),
-        0.5 + 0.5 * cos(1.0 + t * 10.0)
-      );
-      gl_FragColor = vec4(color, 1.0);
+    if (iterations == maxIter) {
+      return 0.0;
     }
+    
+    return float(iterations) / float(maxIter);
+  }
+  
+  void main() {
+    vec3 finalColor = vec3(0.0);
+    
+    // Layer 1: Red/Orange fractal - rotating and zooming
+    float t1 = u_time * 0.3;
+    vec2 center1 = vec2(-0.5 + 0.2 * sin(t1), 0.0 + 0.2 * cos(t1 * 0.7));
+    float zoom1 = 1.0 + 0.5 * sin(t1 * 0.5);
+    float rot1 = t1 * 0.2;
+    float m1 = mandelbrot(center1, zoom1, rot1, 80);
+    vec3 color1 = vec3(
+      0.8 + 0.2 * cos(m1 * 20.0 + t1),
+      0.3 + 0.2 * sin(m1 * 15.0),
+      0.1
+    ) * m1 * 0.6;
+    finalColor += color1;
+    
+    // Layer 2: Cyan/Blue fractal - different animation
+    float t2 = u_time * 0.4;
+    vec2 center2 = vec2(-0.75 + 0.15 * cos(t2 * 0.8), 0.1 + 0.15 * sin(t2));
+    float zoom2 = 1.2 + 0.3 * cos(t2 * 0.6);
+    float rot2 = -t2 * 0.15;
+    float m2 = mandelbrot(center2, zoom2, rot2, 100);
+    vec3 color2 = vec3(
+      0.1,
+      0.5 + 0.3 * cos(m2 * 18.0 + t2 * 2.0),
+      0.9 + 0.1 * sin(m2 * 12.0)
+    ) * m2 * 0.5;
+    finalColor += color2;
+    
+    // Layer 3: Green/Magenta fractal - faster animation
+    float t3 = u_time * 0.5;
+    vec2 center3 = vec2(-0.2 + 0.1 * sin(t3 * 1.2), 0.8 + 0.1 * cos(t3 * 0.9));
+    float zoom3 = 0.8 + 0.4 * sin(t3 * 0.7);
+    float rot3 = t3 * 0.25;
+    float m3 = mandelbrot(center3, zoom3, rot3, 90);
+    vec3 color3 = vec3(
+      0.2 + 0.3 * sin(m3 * 16.0),
+      0.8 + 0.2 * cos(m3 * 14.0 + t3),
+      0.4 + 0.3 * sin(m3 * 10.0)
+    ) * m3 * 0.4;
+    finalColor += color3;
+    
+    // Layer 4: Purple/Yellow fractal - slow and smooth
+    float t4 = u_time * 0.25;
+    vec2 center4 = vec2(0.0 + 0.12 * cos(t4 * 0.5), -0.5 + 0.12 * sin(t4 * 0.6));
+    float zoom4 = 1.1 + 0.2 * cos(t4 * 0.4);
+    float rot4 = -t4 * 0.1;
+    float m4 = mandelbrot(center4, zoom4, rot4, 85);
+    vec3 color4 = vec3(
+      0.6 + 0.2 * cos(m4 * 22.0),
+      0.3 + 0.2 * sin(m4 * 19.0),
+      0.7 + 0.2 * cos(m4 * 17.0 + t4)
+    ) * m4 * 0.35;
+    finalColor += color4;
+    
+    // Normalize and enhance
+    finalColor = pow(finalColor, vec3(0.9)); // Slight gamma correction
+    finalColor = clamp(finalColor, 0.0, 1.0);
+    
+    gl_FragColor = vec4(finalColor, 1.0);
   }
 </script>
 <script src="script.js"></script>
