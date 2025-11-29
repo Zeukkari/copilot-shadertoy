@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Dark Raymarching</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            background-color: #000;
+            color: #888;
+        }
+
+        canvas {
+            filter: contrast(1.1) brightness(1.0);
+        }
+
+        /* Custom overrides for the dark theme controls */
+        .controls-panel {
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #333;
+            color: #ccc;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        h3 {
+            color: #fff;
+            border-bottom: 1px solid #333;
+        }
+
+        input[type=range] {
+            background: #333;
+        }
+
+        .value-display {
+            color: #0ff;
+            font-family: monospace;
+        }
+
+        /* Checkbox style */
+        input[type=checkbox] {
+            accent-color: #0ff;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <p>Interactive Dark Raymarching</p>
+    <canvas>Your browser does not seem to support HTML canvas.</canvas>
+
+    <div id="controls" class="controls-panel">
+        <h3>Fractal Parameters</h3>
+
+        <div class="control-group">
+            <label for="scale">Scale:</label>
+            <input type="range" id="scale" min="1.0" max="3.0" step="0.01" value="2.11">
+            <span class="value-display" id="scaleValue">2.11</span>
+        </div>
+
+        <div class="control-group">
+            <label for="offset">Offset:</label>
+            <input type="range" id="offset" min="0.0" max="3.0" step="0.01" value="1.0">
+            <span class="value-display" id="offsetValue">1.00</span>
+        </div>
+
+        <div class="control-group">
+            <label for="foldAngle">Fold Angle:</label>
+            <div style="display: flex; align-items: center; gap: 10px; flex-grow: 1;">
+                <input type="range" id="foldAngle" min="0.0" max="1.0" step="0.01" value="0.5" style="flex-grow: 1;">
+                <label for="animateFold" style="font-size: 0.8em; width: auto; margin: 0; color: #0ff;">Anim</label>
+                <input type="checkbox" id="animateFold" checked>
+            </div>
+            <span class="value-display" id="foldAngleValue">0.50</span>
+        </div>
+
+        <div class="control-group">
+            <label for="iterations">Iterations:</label>
+            <input type="range" id="iterations" min="1" max="8" step="1" value="7">
+            <span class="value-display" id="iterationsValue">7</span>
+        </div>
+
+        <h3>Visuals</h3>
+
+        <div class="control-group">
+            <label for="glowIntensity">Glow Intensity:</label>
+            <input type="range" id="glowIntensity" min="0.0" max="2.0" step="0.01" value="1.0">
+            <span class="value-display" id="glowIntensityValue">1.00</span>
+        </div>
+
+        <div class="control-group">
+            <label for="colorSpeed">Color Speed:</label>
+            <input type="range" id="colorSpeed" min="0.0" max="2.0" step="0.1" value="0.2">
+            <span class="value-display" id="colorSpeedValue">0.2</span>
+        </div>
+
+        <div class="control-group">
+            <label for="colorShift">Color Shift:</label>
+            <input type="range" id="colorShift" min="0.0" max="6.28" step="0.1" value="0.0">
+            <span class="value-display" id="colorShiftValue">0.0</span>
+        </div>
+
+        <div class="control-group">
+            <label for="sphereSize">Orbit Size:</label>
+            <input type="range" id="sphereSize" min="0.0" max="1.0" step="0.01" value="0.08">
+            <span class="value-display" id="sphereSizeValue">0.08</span>
+        </div>
+
+        <div class="control-group">
+            <label for="geometryType">Orbit Shape:</label>
+            <select id="geometryType" style="background: #333; color: #ccc; border: 1px solid #444; padding: 2px;">
+                <option value="0">Sphere</option>
+                <option value="1">Cube</option>
+                <option value="2" selected>Torus</option>
+            </select>>
+        </div>
+
+        <h3>Animation & Performance</h3>
+
+        <div class="control-group">
+            <label for="cameraSpeed">Camera Speed:</label>
+            <input type="range" id="cameraSpeed" min="0.0" max="1.0" step="0.01" value="0.0">
+            <span class="value-display" id="cameraSpeedValue">0.00</span>
+        </div>
+
+        <div class="control-group">
+            <label for="rotSpeed">Rotation Speed:</label>
+            <input type="range" id="rotSpeed" min="0.0" max="1.0" step="0.01" value="0.01">
+            <span class="value-display" id="rotSpeedValue">0.01</span>
+        </div>
+
+        <div class="control-group">
+            <label for="quality">Quality (Resolution):</label>
+            <input type="range" id="quality" min="0.1" max="1.0" step="0.1" value="0.4">
+            <span class="value-display" id="qualityValue">0.4</span>
+        </div>
+
+        <button id="resetBtn" class="reset-btn">Reset to Default</button>
+    </div>
+
+    <script type="x-shader/x-vertex" id="vertex-shader">
+  attribute vec2 a_position;
+  varying vec2 v_uv;
+  
+  void main() {
+    v_uv = a_position * 0.5 + 0.5; // Convert from -1..1 to 0..1
+    gl_Position = vec4(a_position, 0.0, 1.0);
+  }
+</script>
+
+    <script type="x-shader/x-fragment" id="fragment-shader">
+  precision mediump float;
+  
+  uniform vec2 u_resolution;
+  uniform float u_time;
+  
+  // Interactive Uniforms
+  uniform float u_scale;
+  uniform float u_offset;
+  uniform float u_foldAngle;
+  uniform int u_iterations;
+  uniform float u_glowIntensity;
+  uniform float u_colorSpeed;
+  uniform float u_colorShift;
+  uniform float u_cameraSpeed;
+  uniform float u_rotSpeed;
+  uniform float u_sphereSize;
+  uniform int u_geometryType;
+  
+  varying vec2 v_uv;
+
+  // Constants - Optimized for Mobile
+  #define MAX_STEPS 60        // Reduced from 80
+  #define MAX_DIST 40.0       // Reduced from 50.0
+  #define SURF_DIST 0.005     // Increased from 0.001 (less precision = faster)
+  
+  // Rotation matrix
+  mat2 rot(float a) {
+      float s = sin(a);
+      float c = cos(a);
+      return mat2(c, -s, s, c);
+  }
+
+  // SDF Primitives
+  float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+  }
+
+  float sdTorus(vec3 p, vec2 t) {
+    vec2 q = vec2(length(p.xz)-t.x,p.y);
+    return length(q)-t.y;
+  }
+
+  // Red Monochrome Palette
+  vec3 paletteRed(float t) {
+      t += u_colorShift;
+      // Base: Black -> Red -> Bright Red -> White
+      float brightness = 0.5 + 0.5 * sin(t * 10.0 + u_time * u_colorSpeed);
+      vec3 col = vec3(1.0, 0.0, 0.0) * brightness; // Red base
+      
+      // Add white highlights
+      float highlight = pow(cos(t * 5.0 + u_time * 0.2 * u_colorSpeed), 4.0);
+      col += vec3(1.0, 1.0, 1.0) * highlight * 0.8;
+      
+      return col;
+  }
+
+  // KIFS (Kaleidoscopic Iterated Function System) SDF
+  vec2 GetDist(vec3 p) {
+      float scale = u_scale;
+      float offset = u_offset;
+      float orbit = 0.0;
+      
+      // Animate the fractal folding based on user input + time
+      // Removed the hardcoded sine wave here to let the JS control it fully if needed
+      // But we keep a tiny bit of life if animation is off, or just rely on the JS animation
+      float angle = u_foldAngle; 
+      
+      // Initial rotation
+      p.xz *= rot(u_time * u_rotSpeed);
+      p.yz *= rot(u_time * u_rotSpeed * 1.5);
+      
+      vec3 pGeo = p; // Save coordinates for orbiting geometry
+      
+      // Folding loop
+      for(int i = 0; i < 20; i++) {
+          if (i >= u_iterations) break;
+          
+          p = abs(p); // Fold space
+          p -= offset; // Shift
+          
+          // Rotate to create complexity
+          p.xy *= rot(angle);
+          p.yz *= rot(angle * 0.7);
+          
+          // Scale
+          p *= scale;
+          
+          // Accumulate orbit trap (distance from origin)
+          orbit += length(p);
+      }
+      
+      // Distance to a box/cross shape
+      float d = length(max(abs(p) - 0.5, 0.0));
+      
+      // Correct distance for scaling
+      d /= pow(scale, float(u_iterations));
+      
+      // Add Orbiting Geometry
+      if (u_sphereSize > 0.0) {
+          vec3 pOrb = pGeo; // Use saved world coordinates
+          
+          // 1. Rotate the whole swarm over time
+          pOrb.xz *= rot(u_time * 0.2);
+          
+          // 2. Polar Repetition (Radial Symmetry)
+          float n = 20.0; // Number of objects
+          float angle = 6.28318 / n;
+          float a = atan(pOrb.z, pOrb.x);
+          float id = floor(a / angle); // Unique ID for each sector
+          a = mod(a, angle) - angle * 0.5;
+          pOrb.xz = vec2(cos(a), sin(a)) * length(pOrb.xz);
+          
+          // 3. Offset from center (Orbit Radius)
+          pOrb.x -= 3.5; 
+          
+          // 4. Add vertical movement based on ID for "swarm" feel
+          pOrb.y += sin(u_time * 2.0 + id * 2.0) * 0.5;
+          
+          float dGeo = 100.0;
+          
+          if (u_geometryType == 0) { // Sphere
+              dGeo = length(pOrb) - u_sphereSize;
+          } else if (u_geometryType == 1) { // Cube
+              // Rotate each cube individually
+              pOrb.xy *= rot(u_time + id); 
+              pOrb.xz *= rot(u_time * 1.5 + id);
+              dGeo = sdBox(pOrb, vec3(u_sphereSize));
+          } else if (u_geometryType == 2) { // Torus
+              // Rotate each torus
+              pOrb.xy *= rot(u_time + id);
+              dGeo = sdTorus(pOrb, vec2(u_sphereSize, u_sphereSize*0.3));
+          }
+          
+          d = min(d, dGeo);
+      }
+      
+      return vec2(d, orbit);
+  }
+
+  // Raymarching loop with volumetric glow
+  vec4 RayMarch(vec3 ro, vec3 rd) {
+      float dO = 0.0;
+      float glow = 0.0;
+      float minD = 1000.0;
+      float orbitTrap = 0.0;
+      
+      for(int i = 0; i < MAX_STEPS; i++) {
+          vec3 p = ro + rd * dO;
+          vec2 res = GetDist(p);
+          float dS = res.x;
+          
+          // Accumulate glow based on how close we are to geometry
+          glow += 0.02 / (0.02 + dS * dS * 20.0);
+          
+          dO += dS;
+          
+          if(dS < minD) {
+              minD = dS;
+              orbitTrap = res.y;
+          }
+          
+          if(dO > MAX_DIST || dS < SURF_DIST) break;
+      }
+      
+      return vec4(dO, glow, minD, orbitTrap);
+  }
+
+  void main() {
+    vec2 uv = (v_uv - 0.5) * 2.0;
+    uv.x *= u_resolution.x / u_resolution.y;
+
+    // Camera setup
+    vec3 ro = vec3(0, 0, -3.5); // Camera position
+    
+    // Animate camera zoom/position
+    ro.z += sin(u_time * u_cameraSpeed) * 0.5;
+    
+    vec3 lookAt = vec3(0, 0, 0);
+    vec3 f = normalize(lookAt - ro);
+    vec3 r = normalize(cross(vec3(0, 1, 0), f));
+    vec3 u = cross(f, r);
+    
+    vec3 rd = normalize(f + uv.x * r + uv.y * u);
+    
+    // Render
+    vec4 res = RayMarch(ro, rd);
+    float d = res.x;
+    float glow = res.y;
+    float orbit = res.w;
+    
+    vec3 col = vec3(0.0);
+    
+    // Base color from palette based on orbit trap
+    vec3 baseColor = paletteRed(orbit * 0.05 + u_time * 0.1 * u_colorSpeed);
+    
+    if(d < MAX_DIST) {
+        // We hit geometry
+        col += baseColor * 0.5;
+    }
+    
+    // Add volumetric glow
+    vec3 glowColor = paletteRed(orbit * 0.02 + u_time * 0.2 * u_colorSpeed + 2.0);
+    col += glow * glowColor * 0.05 * u_glowIntensity;
+    
+    // Vignette
+    col *= 1.0 - length(v_uv - 0.5) * 0.8;
+    
+    // Tone mapping
+    col = 1.0 - exp(-col * 1.5);
+    
+    gl_FragColor = vec4(col, 1.0);
+  }
+</script>
+
+    <script>
+        const canvas = document.querySelector("canvas");
+        const gl = canvas.getContext("webgl");
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error(gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+
+        const vertexShaderSource = document.getElementById("vertex-shader").text;
+        const fragmentShaderSource = document.getElementById("fragment-shader").text;
+
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error(gl.getProgramInfoLog(program));
+        }
+
+        gl.useProgram(program);
+
+        const positionLocation = gl.getAttribLocation(program, "a_position");
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            -1, -1, 1, -1, -1, 1,
+            -1, 1, 1, -1, 1, 1
+        ]), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(positionLocation);
+        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+        // Uniform Locations
+        const uResolution = gl.getUniformLocation(program, "u_resolution");
+        const uTime = gl.getUniformLocation(program, "u_time");
+        const uScale = gl.getUniformLocation(program, "u_scale");
+        const uOffset = gl.getUniformLocation(program, "u_offset");
+        const uFoldAngle = gl.getUniformLocation(program, "u_foldAngle");
+        const uIterations = gl.getUniformLocation(program, "u_iterations");
+        const uGlowIntensity = gl.getUniformLocation(program, "u_glowIntensity");
+        const uColorSpeed = gl.getUniformLocation(program, "u_colorSpeed");
+        const uColorShift = gl.getUniformLocation(program, "u_colorShift");
+        const uCameraSpeed = gl.getUniformLocation(program, "u_cameraSpeed");
+        const uRotSpeed = gl.getUniformLocation(program, "u_rotSpeed");
+        const uSphereSize = gl.getUniformLocation(program, "u_sphereSize");
+        const uGeometryType = gl.getUniformLocation(program, "u_geometryType");
+
+        // State
+        let params = {
+            scale: 2.11,
+            offset: 1.0,
+            foldAngle: 0.5,
+            iterations: 7,
+            glowIntensity: 1.0,
+            colorSpeed: 0.2,
+            colorShift: 0.0,
+            cameraSpeed: 0.0,
+            rotSpeed: 0.01,
+            quality: 0.4,
+            animateFold: true,
+            sphereSize: 0.08,
+            geometryType: 2 // 0: Sphere, 1: Cube, 2: Torus
+        };
+
+        // UI Setup
+        function setupControls() {
+            const bindControl = (id, paramKey, isInt = false) => {
+                const input = document.getElementById(id);
+                const display = document.getElementById(id + 'Value');
+
+                input.addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    params[paramKey] = val;
+                    if (display) display.textContent = isInt ? val : val.toFixed(2);
+                });
+            };
+
+            bindControl('scale', 'scale');
+            bindControl('offset', 'offset');
+            bindControl('foldAngle', 'foldAngle');
+            bindControl('iterations', 'iterations', true);
+            bindControl('glowIntensity', 'glowIntensity');
+            bindControl('colorSpeed', 'colorSpeed');
+            bindControl('colorShift', 'colorShift');
+            bindControl('cameraSpeed', 'cameraSpeed');
+            bindControl('rotSpeed', 'rotSpeed');
+            bindControl('quality', 'quality');
+            bindControl('sphereSize', 'sphereSize');
+
+            // Geometry Type Selector
+            document.getElementById('geometryType').addEventListener('change', (e) => {
+                params.geometryType = parseInt(e.target.value);
+            });
+
+            // Animation checkbox
+            const animateFoldCheckbox = document.getElementById('animateFold');
+            animateFoldCheckbox.addEventListener('change', (e) => {
+                params.animateFold = e.target.checked;
+            });
+
+            document.getElementById('resetBtn').addEventListener('click', () => {
+                params = {
+                    scale: 2.11,
+                    offset: 1.0,
+                    foldAngle: 0.5,
+                    iterations: 7,
+                    glowIntensity: 1.0,
+                    colorSpeed: 0.2,
+                    colorShift: 0.0,
+                    cameraSpeed: 0.0,
+                    rotSpeed: 0.01,
+                    quality: 0.4,
+                    animateFold: true,
+                    sphereSize: 0.08,
+                    geometryType: 2
+                };
+
+                // Update UI
+                Object.keys(params).forEach(key => {
+                    const input = document.getElementById(key);
+                    const display = document.getElementById(key + 'Value');
+                    if (input) {
+                        if (input.type === 'checkbox') {
+                            input.checked = params[key];
+                        } else {
+                            input.value = params[key];
+                            if (display) display.textContent = Number.isInteger(params[key]) ? params[key] : params[key].toFixed(2);
+                        }
+                    }
+                });
+                // Reset select
+                document.getElementById('geometryType').value = 2;
+            });
+        }
+
+        setupControls();
+
+        let startTime = Date.now();
+
+        function render() {
+            // Handle resolution/quality scaling
+            const displayWidth = canvas.clientWidth;
+            const displayHeight = canvas.clientHeight;
+
+            // Scale internal resolution by quality factor
+            const targetWidth = Math.floor(displayWidth * params.quality);
+            const targetHeight = Math.floor(displayHeight * params.quality);
+
+            if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+                canvas.width = targetWidth;
+                canvas.height = targetHeight;
+                gl.viewport(0, 0, targetWidth, targetHeight);
+            }
+
+            const time = (Date.now() - startTime) * 0.001;
+
+            // Handle Fold Animation
+            if (params.animateFold) {
+                // 3 seconds one way = 6 seconds period
+                // Sine wave from 0 to 1
+                // sin(t) goes -1 to 1. 
+                // 0.5 + 0.5 * sin(t) goes 0 to 1.
+                // Period T = 2*PI / w. We want T = 6. So w = PI / 3.
+                // Shift phase by -PI/2 to start at 0.
+
+                const period = 6.0; // 3 seconds up, 3 seconds down
+                const w = (2.0 * Math.PI) / period;
+                const animatedFold = 0.5 + 0.5 * Math.sin(time * w - Math.PI / 2.0);
+
+                params.foldAngle = animatedFold;
+
+                // Update UI slider to reflect animation
+                const foldInput = document.getElementById('foldAngle');
+                const foldDisplay = document.getElementById('foldAngleValue');
+                if (foldInput && document.activeElement !== foldInput) { // Don't fight user input
+                    foldInput.value = animatedFold;
+                    foldDisplay.textContent = animatedFold.toFixed(2);
+                }
+            }
+
+            gl.uniform2f(uResolution, targetWidth, targetHeight);
+            gl.uniform1f(uTime, time);
+
+            // Update interactive uniforms
+            gl.uniform1f(uScale, params.scale);
+            gl.uniform1f(uOffset, params.offset);
+            gl.uniform1f(uFoldAngle, params.foldAngle);
+            gl.uniform1i(uIterations, params.iterations);
+            gl.uniform1f(uGlowIntensity, params.glowIntensity);
+            gl.uniform1f(uColorSpeed, params.colorSpeed);
+            gl.uniform1f(uColorShift, params.colorShift);
+            gl.uniform1f(uCameraSpeed, params.cameraSpeed);
+            gl.uniform1f(uRotSpeed, params.rotSpeed);
+            gl.uniform1f(uSphereSize, params.sphereSize);
+            gl.uniform1i(uGeometryType, params.geometryType);
+
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            requestAnimationFrame(render);
+        }
+
+        render();
+    </script>
+</body>
+
+</html>

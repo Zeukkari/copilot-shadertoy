@@ -131,14 +131,64 @@ This document records the development conversation for a WebGL shader-based Mand
 
 ---
 
+## Raymarching & Audio Reactivity
+
+**User Request:** "create a raymarching demo with audio reactivity"
+
+**Implementation:**
+- Created `raymarching.html`
+- Implemented 3D SDF (Signed Distance Field) rendering
+- Added procedural audio generation (Kick, Snare, Hi-hat, Bass)
+- Added speech synthesis integration
+- Visuals react to beat (pulsing sphere, lighting shifts)
+
+---
+
+## Dark Fractal & KIFS
+
+**User Request:** "create a dark, high-contrast fractal demo"
+
+**Implementation:**
+- Created `dark_fractal.html` (Julia Set) and `dark_raymarching.html` (KIFS)
+- Implemented "Electric" and "Dark" color palettes
+- Added aggressive auto-animations for zoom and rotation
+- Optimized for mobile by reducing resolution and iterations
+
+---
+
+## Interactive Raymarching
+
+**User Request:** "make the raymarching demo interactive with controls"
+
+**Implementation:**
+- Created `interactive_raymarching.html`
+- Added comprehensive UI controls for:
+  - Fractal params (Scale, Offset, Fold Angle, Iterations)
+  - Visuals (Glow, Color Speed, Orbit Size)
+  - Animation (Camera Speed, Rotation Speed)
+- Implemented "Red Monochrome" color palette
+- Added dynamic geometry switching (Sphere -> Cube -> Torus)
+- Added "Swarm" mode with 20+ orbiting objects using polar repetition
+
+---
+
+## Audio Upgrade
+
+**User Request:** "extend the beat to make it feel like a full track"
+
+**Implementation:**
+- Upgraded `raymarching.html` audio engine
+- Implemented a sequencer with song structure:
+  - Intro -> Main Beat -> Hype Section -> Breakdown
+- Added dynamic geometry switching on beat (Sphere -> Cube -> Octahedron)
+- Updated visuals to a "Cyberpunk" aesthetic (Deep Purple/Cyan/Pink)
+
+---
+
 ## Final State
 
-The project now consists of:
-
-1. **index.html**: HTML structure with shader scripts and control panel
-2. **script.js**: WebGL setup, shader compilation, rendering loop, and UI controls
-3. **style.css**: Full-screen canvas styling and control panel styling
-4. **chatlog.md**: This conversation log
-
-The application renders a Mandelbrot fractal with interactive controls allowing users to explore different regions, zoom levels, and detail settings in real-time.
-
+The project now consists of multiple demos:
+1. **index.html**: Interactive Mandelbrot
+2. **raymarching.html**: Audio-reactive 3D scene with full song structure
+3. **dark_fractal.html**: Optimized, high-contrast Julia set animation
+4. **interactive_raymarching.html**: Fully controllable KIFS fractal with orbiting swarm

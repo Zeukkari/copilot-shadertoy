@@ -10,11 +10,80 @@
 <body>
 <p>Hello World! Hello GLSL!</p>
 <canvas>Your browser does not seem to support HTML canvas.</canvas>
-<div id="controls" class="controls-panel">
-  <h3>Multi-Fractal Animation</h3>
-  <p style="color: #aaa; font-size: 11px; margin-bottom: 15px;">
-    4 animated fractal layers with additive blending
-  </p>
+<div id="controls" class="controls-panel" style="display: none;">
+  <h3>Fractal Controls</h3>
+  <div class="control-group">
+    <label for="centerX">Center X:</label>
+    <input type="range" id="centerX" min="-2" max="1" step="0.001" value="0.0">
+    <span class="value-display" id="centerXValue">0.0</span>
+  </div>
+  <div class="control-group">
+    <label for="centerY">Center Y:</label>
+    <input type="range" id="centerY" min="-1.5" max="1.5" step="0.001" value="0.0">
+    <span class="value-display" id="centerYValue">0.0</span>
+  </div>
+  <div class="control-group">
+    <label for="zoom">Zoom:</label>
+    <input type="range" id="zoom" min="0.1" max="20" step="0.001" value="1.0">
+    <span class="value-display" id="zoomValue">1.0</span>
+  </div>
+  <div class="control-group">
+    <label for="maxIterations">Max Iterations:</label>
+    <input type="range" id="maxIterations" min="10" max="500" step="10" value="100">
+    <span class="value-display" id="maxIterationsValue">100</span>
+  </div>
+  <div class="control-group">
+    <label for="rotation">Rotation:</label>
+    <input type="range" id="rotation" min="0" max="6.28" step="0.01" value="0.0">
+    <span class="value-display" id="rotationValue">0.0</span>
+  </div>
+  <div class="control-group">
+    <label for="escapeRadius">Escape Radius:</label>
+    <input type="range" id="escapeRadius" min="2.0" max="10.0" step="0.1" value="4.0">
+    <span class="value-display" id="escapeRadiusValue">4.0</span>
+  </div>
+  <div class="control-group">
+    <label for="colorOffset">Color Offset:</label>
+    <input type="range" id="colorOffset" min="0" max="6.28" step="0.1" value="3.0">
+    <span class="value-display" id="colorOffsetValue">3.0</span>
+  </div>
+  <div class="control-group">
+    <label for="colorSpeed">Color Speed:</label>
+    <input type="range" id="colorSpeed" min="1" max="50" step="1" value="10">
+    <span class="value-display" id="colorSpeedValue">10</span>
+  </div>
+  <div class="control-group">
+    <label for="colorIntensity">Color Intensity:</label>
+    <input type="range" id="colorIntensity" min="0.1" max="2.0" step="0.1" value="1.0">
+    <span class="value-display" id="colorIntensityValue">1.0</span>
+  </div>
+  <div class="control-group">
+    <label for="juliaMode">Julia Set Mode:</label>
+    <input type="checkbox" id="juliaMode">
+    <span class="value-display" id="juliaModeValue">Off</span>
+  </div>
+  <div class="control-group" id="juliaControls" style="display: none;">
+    <label for="juliaX">Julia C X:</label>
+    <input type="range" id="juliaX" min="-2" max="2" step="0.001" value="-0.7269">
+    <span class="value-display" id="juliaXValue">-0.7269</span>
+  </div>
+  <div class="control-group" id="juliaControls2" style="display: none;">
+    <label for="juliaY">Julia C Y:</label>
+    <input type="range" id="juliaY" min="-2" max="2" step="0.001" value="0.1889">
+    <span class="value-display" id="juliaYValue">0.1889</span>
+  </div>
+  <div class="control-group">
+    <label for="colorPalette">Color Palette:</label>
+    <select id="colorPalette">
+      <option value="0">Rainbow</option>
+      <option value="1">Fire</option>
+      <option value="2">Ocean</option>
+      <option value="3">Forest</option>
+      <option value="4">Sunset</option>
+      <option value="5">Monochrome</option>
+    </select>
+  </div>
+  <button id="resetBtn" class="reset-btn">Reset to Default</button>
 </div>
 <script type="x-shader/x-vertex" id="vertex-shader">
   attribute vec2 a_position;
@@ -29,12 +98,101 @@
   precision mediump float;
   
   uniform vec2 u_resolution;
-  uniform float u_time;
+  uniform vec2 u_center;
+  uniform float u_zoom;
+  uniform int u_maxIterations;
+  uniform float u_rotation;
+  uniform float u_escapeRadius;
+  uniform float u_colorOffset;
+  uniform float u_colorSpeed;
+  uniform float u_colorIntensity;
+  uniform int u_juliaMode;
+  uniform vec2 u_juliaC;
+  uniform int u_colorPalette;
+  uniform vec2 u_juliaC2; // Second fractal layer Julia C
+  uniform vec2 u_juliaC3; // Third fractal layer Julia C
+  uniform float u_greenRotation; // Rotation for green fractal layer
+  uniform float u_redRotation; // Rotation for red fractal layer
+  uniform float u_time; // Time for multifractal animation
   
   varying vec2 v_uv;
   
-  // Mandelbrot computation function
-  float mandelbrot(vec2 center, float zoom, float rotation, int maxIter) {
+  // Color palette functions
+  vec3 paletteRainbow(float t) {
+    return vec3(
+      0.5 + 0.5 * cos(3.0 + t * u_colorSpeed + u_colorOffset),
+      0.5 + 0.5 * cos(2.0 + t * u_colorSpeed + u_colorOffset),
+      0.5 + 0.5 * cos(1.0 + t * u_colorSpeed + u_colorOffset)
+    );
+  }
+  
+  vec3 paletteFire(float t) {
+    return vec3(
+      t * u_colorIntensity,
+      t * t * u_colorIntensity * 0.5,
+      t * t * t * u_colorIntensity * 0.1
+    );
+  }
+  
+  vec3 paletteOcean(float t) {
+    return vec3(
+      0.1 + 0.3 * sin(t * u_colorSpeed + u_colorOffset),
+      0.3 + 0.5 * sin(t * u_colorSpeed + u_colorOffset + 1.0),
+      0.7 + 0.3 * sin(t * u_colorSpeed + u_colorOffset + 2.0)
+    );
+  }
+  
+  vec3 paletteForest(float t) {
+    return vec3(
+      0.1 + 0.2 * sin(t * u_colorSpeed + u_colorOffset),
+      0.4 + 0.4 * sin(t * u_colorSpeed + u_colorOffset + 1.5),
+      0.2 + 0.2 * sin(t * u_colorSpeed + u_colorOffset + 0.5)
+    );
+  }
+  
+  vec3 paletteSunset(float t) {
+    return vec3(
+      0.8 + 0.2 * cos(t * u_colorSpeed + u_colorOffset),
+      0.4 + 0.3 * cos(t * u_colorSpeed + u_colorOffset + 1.0),
+      0.2 + 0.2 * cos(t * u_colorSpeed + u_colorOffset + 2.0)
+    );
+  }
+  
+  vec3 paletteMonochrome(float t) {
+    float gray = 0.5 + 0.5 * sin(t * u_colorSpeed + u_colorOffset);
+    return vec3(gray * u_colorIntensity);
+  }
+  
+  vec3 paletteGreen(float t) {
+    return vec3(
+      0.1 + 0.2 * sin(t * u_colorSpeed + u_colorOffset),
+      0.6 + 0.4 * sin(t * u_colorSpeed + u_colorOffset + 1.0),
+      0.2 + 0.3 * sin(t * u_colorSpeed + u_colorOffset + 0.5)
+    );
+  }
+  
+  vec3 paletteBlue(float t) {
+    return vec3(
+      0.1 + 0.2 * sin(t * u_colorSpeed + u_colorOffset),
+      0.2 + 0.3 * sin(t * u_colorSpeed + u_colorOffset + 1.0),
+      0.7 + 0.3 * sin(t * u_colorSpeed + u_colorOffset + 2.0)
+    );
+  }
+  
+  vec3 getColor(float t, int palette) {
+    if (palette == 0) return paletteRainbow(t);
+    else if (palette == 1) return paletteFire(t);
+    else if (palette == 2) return paletteOcean(t);
+    else if (palette == 3) return paletteForest(t);
+    else if (palette == 4) return paletteSunset(t);
+    else if (palette == 5) return paletteMonochrome(t);
+    else if (palette == 6) return paletteGreen(t);
+    else if (palette == 7) return paletteBlue(t);
+    else return paletteMonochrome(t);
+  }
+  
+  // Mandelbrot computation function for multifractal layers
+  float mandelbrotMultifractal(vec2 center, float zoom, float rotation, int maxIter) {
     vec2 c = (v_uv - 0.5) * 2.0;
     c.x *= u_resolution.x / u_resolution.y;
     
@@ -69,64 +227,233 @@
     return float(iterations) / float(maxIter);
   }
   
+  // Compute fractal for given Julia C constant
+  // Returns: x = normalized iterations (0-1), y = 1.0 if inside set, 0.0 if outside
+  vec2 computeFractal(vec2 c, vec2 juliaConstant) {
+    vec2 z;
+    vec2 constant;
+    if (u_juliaMode == 1) {
+      z = c;
+      constant = juliaConstant;
+    } else {
+      z = vec2(0.0);
+      constant = c;
+    }
+    
+    int iterations = 0;
+    bool escaped = false;
+    
+    for (int i = 0; i < 256; i++) {
+      if (i >= u_maxIterations) break;
+      
+      float x = (z.x * z.x - z.y * z.y) + constant.x;
+      float y = (z.x * z.y * 2.0) + constant.y;
+      z = vec2(x, y);
+      
+      if (dot(z, z) > u_escapeRadius * u_escapeRadius) {
+        iterations = i;
+        escaped = true;
+        break;
+      }
+    }
+    
+    float t = float(iterations) / float(u_maxIterations);
+    float isInside = escaped ? 0.0 : 1.0; // 1.0 if inside set (didn't escape)
+    return vec2(t, isInside);
+  }
+  
   void main() {
-    vec3 finalColor = vec3(0.0);
+    // Map pixel coordinates to complex plane
+    vec2 c = (v_uv - 0.5) * 2.0;
+    c.x *= u_resolution.x / u_resolution.y; // Aspect ratio correction
+    
+    // Apply rotation
+    float cosR = cos(u_rotation);
+    float sinR = sin(u_rotation);
+    c = vec2(c.x * cosR - c.y * sinR, c.x * sinR + c.y * cosR);
+    
+    // Apply zoom and center
+    c = c / u_zoom + u_center;
+    
+    // Apply rotation to red fractal layer (layer 1) - reverse direction
+    vec2 c1 = c;
+    float cosR1 = cos(u_redRotation);
+    float sinR1 = sin(u_redRotation);
+    c1 = vec2(c1.x * cosR1 - c1.y * sinR1, c1.x * sinR1 + c1.y * cosR1);
+    vec2 result1 = computeFractal(c1, u_juliaC);
+    
+    // Apply additional rotation to green fractal layer (layer 2)
+    vec2 c2 = c;
+    float cosR2 = cos(u_greenRotation);
+    float sinR2 = sin(u_greenRotation);
+    // Rotate around origin (0,0) which is the center after zoom/center transform
+    c2 = vec2(c2.x * cosR2 - c2.y * sinR2, c2.x * sinR2 + c2.y * cosR2);
+    vec2 result2 = computeFractal(c2, u_juliaC2);
+    
+    vec2 result3 = computeFractal(c, u_juliaC3);
+    
+    float t1 = result1.x;
+    float t2 = result2.x;
+    float t3 = result3.x;
+    float inside1 = result1.y;
+    float inside2 = result2.y;
+    float inside3 = result3.y;
+    
+    // Get colors for each layer
+    vec3 color1 = getColor(t1, u_colorPalette); // Main layer (Fire)
+    vec3 color2 = getColor(t2, 6); // Green palette
+    vec3 color3 = getColor(t3, 7); // Blue palette
+    
+    // Blend layers with opacity (only render outside the set)
+    vec3 finalColor = vec3(0.0); // Start with black background
+    
+    // Main layer (100% opacity)
+    if (inside1 < 0.5) {
+      finalColor += color1;
+    }
+    
+    // Second layer (33% opacity, green)
+    if (inside2 < 0.5) {
+      finalColor += color2 * 0.33;
+    }
+    
+    // Third layer (33% opacity, blue)
+    if (inside3 < 0.5) {
+      finalColor += color3 * 0.33;
+    }
+    
+    // Clamp to prevent over-brightening
+    finalColor = clamp(finalColor, 0.0, 1.0);
+    
+    // Add multifractal layers with full opacity
+    vec3 multifractalColor = vec3(0.0);
     
     // Layer 1: Red/Orange fractal - rotating and zooming
-    float t1 = u_time * 0.3;
-    vec2 center1 = vec2(-0.5 + 0.2 * sin(t1), 0.0 + 0.2 * cos(t1 * 0.7));
-    float zoom1 = 1.0 + 0.5 * sin(t1 * 0.5);
-    float rot1 = t1 * 0.2;
-    float m1 = mandelbrot(center1, zoom1, rot1, 80);
-    vec3 color1 = vec3(
-      0.8 + 0.2 * cos(m1 * 20.0 + t1),
-      0.3 + 0.2 * sin(m1 * 15.0),
+    float mt1 = u_time * 0.3;
+    vec2 mcenter1 = vec2(-0.5 + 0.2 * sin(mt1), 0.0 + 0.2 * cos(mt1 * 0.7));
+    float mzoom1 = 1.0 + 0.5 * sin(mt1 * 0.5);
+    float mrot1 = mt1 * 0.2;
+    float mm1 = mandelbrotMultifractal(mcenter1, mzoom1, mrot1, 80);
+    vec3 mcolor1 = vec3(
+      0.8 + 0.2 * cos(mm1 * 20.0 + mt1),
+      0.3 + 0.2 * sin(mm1 * 15.0),
       0.1
-    ) * m1 * 0.6;
-    finalColor += color1;
+    ) * mm1 * 0.6;
+    multifractalColor += mcolor1;
     
     // Layer 2: Cyan/Blue fractal - different animation
-    float t2 = u_time * 0.4;
-    vec2 center2 = vec2(-0.75 + 0.15 * cos(t2 * 0.8), 0.1 + 0.15 * sin(t2));
-    float zoom2 = 1.2 + 0.3 * cos(t2 * 0.6);
-    float rot2 = -t2 * 0.15;
-    float m2 = mandelbrot(center2, zoom2, rot2, 100);
-    vec3 color2 = vec3(
+    float mt2 = u_time * 0.4;
+    vec2 mcenter2 = vec2(-0.75 + 0.15 * cos(mt2 * 0.8), 0.1 + 0.15 * sin(mt2));
+    float mzoom2 = 1.2 + 0.3 * cos(mt2 * 0.6);
+    float mrot2 = -mt2 * 0.15;
+    float mm2 = mandelbrotMultifractal(mcenter2, mzoom2, mrot2, 100);
+    vec3 mcolor2 = vec3(
       0.1,
-      0.5 + 0.3 * cos(m2 * 18.0 + t2 * 2.0),
-      0.9 + 0.1 * sin(m2 * 12.0)
-    ) * m2 * 0.5;
-    finalColor += color2;
+      0.5 + 0.3 * cos(mm2 * 18.0 + mt2 * 2.0),
+      0.9 + 0.1 * sin(mm2 * 12.0)
+    ) * mm2 * 0.5;
+    multifractalColor += mcolor2;
     
     // Layer 3: Green/Magenta fractal - faster animation
-    float t3 = u_time * 0.5;
-    vec2 center3 = vec2(-0.2 + 0.1 * sin(t3 * 1.2), 0.8 + 0.1 * cos(t3 * 0.9));
-    float zoom3 = 0.8 + 0.4 * sin(t3 * 0.7);
-    float rot3 = t3 * 0.25;
-    float m3 = mandelbrot(center3, zoom3, rot3, 90);
-    vec3 color3 = vec3(
-      0.2 + 0.3 * sin(m3 * 16.0),
-      0.8 + 0.2 * cos(m3 * 14.0 + t3),
-      0.4 + 0.3 * sin(m3 * 10.0)
-    ) * m3 * 0.4;
-    finalColor += color3;
+    float mt3 = u_time * 0.5;
+    vec2 mcenter3 = vec2(-0.2 + 0.1 * sin(mt3 * 1.2), 0.8 + 0.1 * cos(mt3 * 0.9));
+    float mzoom3 = 0.8 + 0.4 * sin(mt3 * 0.7);
+    float mrot3 = mt3 * 0.25;
+    float mm3 = mandelbrotMultifractal(mcenter3, mzoom3, mrot3, 90);
+    vec3 mcolor3 = vec3(
+      0.2 + 0.3 * sin(mm3 * 16.0),
+      0.8 + 0.2 * cos(mm3 * 14.0 + mt3),
+      0.4 + 0.3 * sin(mm3 * 10.0)
+    ) * mm3 * 0.4;
+    multifractalColor += mcolor3;
     
     // Layer 4: Purple/Yellow fractal - slow and smooth
-    float t4 = u_time * 0.25;
-    vec2 center4 = vec2(0.0 + 0.12 * cos(t4 * 0.5), -0.5 + 0.12 * sin(t4 * 0.6));
-    float zoom4 = 1.1 + 0.2 * cos(t4 * 0.4);
-    float rot4 = -t4 * 0.1;
-    float m4 = mandelbrot(center4, zoom4, rot4, 85);
-    vec3 color4 = vec3(
-      0.6 + 0.2 * cos(m4 * 22.0),
-      0.3 + 0.2 * sin(m4 * 19.0),
-      0.7 + 0.2 * cos(m4 * 17.0 + t4)
-    ) * m4 * 0.35;
-    finalColor += color4;
+    float mt4 = u_time * 0.25;
+    vec2 mcenter4 = vec2(0.0 + 0.12 * cos(mt4 * 0.5), -0.5 + 0.12 * sin(mt4 * 0.6));
+    float mzoom4 = 1.1 + 0.2 * cos(mt4 * 0.4);
+    float mrot4 = -mt4 * 0.1;
+    float mm4 = mandelbrotMultifractal(mcenter4, mzoom4, mrot4, 85);
+    vec3 mcolor4 = vec3(
+      0.6 + 0.2 * cos(mm4 * 22.0),
+      0.3 + 0.2 * sin(mm4 * 19.0),
+      0.7 + 0.2 * cos(mm4 * 17.0 + mt4)
+    ) * mm4 * 0.35;
+    multifractalColor += mcolor4;
     
-    // Normalize and enhance
-    finalColor = pow(finalColor, vec3(0.9)); // Slight gamma correction
+    // Normalize and enhance multifractal
+    multifractalColor = pow(multifractalColor, vec3(0.9)); // Slight gamma correction
+    multifractalColor = clamp(multifractalColor, 0.0, 1.0);
+    
+    // Blend multifractal with full opacity
+    finalColor = finalColor + multifractalColor;
     finalColor = clamp(finalColor, 0.0, 1.0);
+    
+    gl_FragColor = vec4(finalColor, 1.0);
+  }
+</script>
+<script type="x-shader/x-fragment" id="bloom-extract-shader">
+  precision mediump float;
+  
+  uniform sampler2D u_texture;
+  uniform float u_threshold;
+  uniform vec2 u_resolution;
+  
+  varying vec2 v_uv;
+  
+  void main() {
+    vec4 color = texture2D(u_texture, v_uv);
+    float brightness = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+    
+    // Extract bright areas above threshold
+    if (brightness > u_threshold) {
+      gl_FragColor = vec4(color.rgb, 1.0);
+    } else {
+      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+  }
+</script>
+<script type="x-shader/x-fragment" id="blur-shader">
+  precision mediump float;
+  
+  uniform sampler2D u_texture;
+  uniform vec2 u_resolution;
+  uniform vec2 u_direction; // Blur direction (1.0, 0.0) for horizontal, (0.0, 1.0) for vertical
+  
+  varying vec2 v_uv;
+  
+  void main() {
+    vec4 color = vec4(0.0);
+    vec2 texelSize = 1.0 / u_resolution;
+    
+    // 9-tap Gaussian blur
+    color += texture2D(u_texture, v_uv + vec2(-4.0 * texelSize.x * u_direction.x, -4.0 * texelSize.y * u_direction.y)) * 0.01621622;
+    color += texture2D(u_texture, v_uv + vec2(-3.0 * texelSize.x * u_direction.x, -3.0 * texelSize.y * u_direction.y)) * 0.05405405;
+    color += texture2D(u_texture, v_uv + vec2(-2.0 * texelSize.x * u_direction.x, -2.0 * texelSize.y * u_direction.y)) * 0.12162162;
+    color += texture2D(u_texture, v_uv + vec2(-1.0 * texelSize.x * u_direction.x, -1.0 * texelSize.y * u_direction.y)) * 0.19459459;
+    color += texture2D(u_texture, v_uv) * 0.22702703;
+    color += texture2D(u_texture, v_uv + vec2(1.0 * texelSize.x * u_direction.x, 1.0 * texelSize.y * u_direction.y)) * 0.19459459;
+    color += texture2D(u_texture, v_uv + vec2(2.0 * texelSize.x * u_direction.x, 2.0 * texelSize.y * u_direction.y)) * 0.12162162;
+    color += texture2D(u_texture, v_uv + vec2(3.0 * texelSize.x * u_direction.x, 3.0 * texelSize.y * u_direction.y)) * 0.05405405;
+    color += texture2D(u_texture, v_uv + vec2(4.0 * texelSize.x * u_direction.x, 4.0 * texelSize.y * u_direction.y)) * 0.01621622;
+    
+    gl_FragColor = color;
+  }
+</script>
+<script type="x-shader/x-fragment" id="composite-shader">
+  precision mediump float;
+  
+  uniform sampler2D u_scene;
+  uniform sampler2D u_bloom;
+  uniform float u_bloomIntensity;
+  
+  varying vec2 v_uv;
+  
+  void main() {
+    vec4 sceneColor = texture2D(u_scene, v_uv);
+    vec4 bloomColor = texture2D(u_bloom, v_uv);
+    
+    // Additive blending with intensity control
+    vec3 finalColor = sceneColor.rgb + bloomColor.rgb * u_bloomIntensity;
     
     gl_FragColor = vec4(finalColor, 1.0);
   }
@@ -135,15 +462,111 @@
 const canvas = document.querySelector("canvas");
 
 const gl = getRenderingContext();
+
+// Bloom effect setup
+let bloomEnabled = true;
+let bloomThreshold = 0.5;
+let bloomIntensity = 0.8;
+let bloomBlurPasses = 3;
+
+// Framebuffers for bloom
+let sceneFramebuffer = null;
+let sceneTexture = null;
+let bloomFramebuffer1 = null;
+let bloomTexture1 = null;
+let bloomFramebuffer2 = null;
+let bloomTexture2 = null;
+
+// Bloom shader programs
+let bloomExtractProgram = null;
+let blurProgram = null;
+let compositeProgram = null;
+
+function createFramebuffer(width, height) {
+  const framebuffer = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+  
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+  
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  
+  return { framebuffer, texture };
+}
+
+function initBloomShaders() {
+  // Bloom extract shader
+  const extractVertexSource = document.querySelector("#vertex-shader").innerHTML;
+  const extractFragmentSource = document.querySelector("#bloom-extract-shader").innerHTML;
+  
+  const extractVertexShader = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(extractVertexShader, extractVertexSource);
+  gl.compileShader(extractVertexShader);
+  
+  const extractFragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(extractFragmentShader, extractFragmentSource);
+  gl.compileShader(extractFragmentShader);
+  
+  bloomExtractProgram = gl.createProgram();
+  gl.attachShader(bloomExtractProgram, extractVertexShader);
+  gl.attachShader(bloomExtractProgram, extractFragmentShader);
+  gl.linkProgram(bloomExtractProgram);
+  
+  // Blur shader
+  const blurFragmentSource = document.querySelector("#blur-shader").innerHTML;
+  
+  const blurFragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(blurFragmentShader, blurFragmentSource);
+  gl.compileShader(blurFragmentShader);
+  
+  blurProgram = gl.createProgram();
+  gl.attachShader(blurProgram, extractVertexShader);
+  gl.attachShader(blurProgram, blurFragmentShader);
+  gl.linkProgram(blurProgram);
+  
+  // Composite shader
+  const compositeFragmentSource = document.querySelector("#composite-shader").innerHTML;
+  
+  const compositeFragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(compositeFragmentShader, compositeFragmentSource);
+  gl.compileShader(compositeFragmentShader);
+  
+  compositeProgram = gl.createProgram();
+  gl.attachShader(compositeProgram, extractVertexShader);
+  gl.attachShader(compositeProgram, compositeFragmentShader);
+  gl.linkProgram(compositeProgram);
+}
+
 let source = document.querySelector("#vertex-shader").innerHTML;
 const vertexShader = gl.createShader(gl.VERTEX_SHADER);
 gl.shaderSource(vertexShader, source);
 gl.compileShader(vertexShader);
 
+if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+  const error = gl.getShaderInfoLog(vertexShader);
+  console.error("Vertex shader compilation error:", error);
+  throw new Error("Vertex shader failed to compile: " + error);
+}
+
 source = document.querySelector("#fragment-shader").innerHTML;
 const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
 gl.shaderSource(fragmentShader, source);
 gl.compileShader(fragmentShader);
+
+if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+  const error = gl.getShaderInfoLog(fragmentShader);
+  console.error("Fragment shader compilation error:", error);
+  document.querySelector("p").textContent = "Fragment shader error: " + error;
+  throw new Error("Fragment shader failed to compile: " + error);
+}
 const program = gl.createProgram();
 gl.attachShader(program, vertexShader);
 gl.attachShader(program, fragmentShader);
@@ -152,6 +575,10 @@ gl.detachShader(program, vertexShader);
 gl.detachShader(program, fragmentShader);
 gl.deleteShader(vertexShader);
 gl.deleteShader(fragmentShader);
+
+// Declare buffer before it might be used in cleanup()
+let buffer = null;
+
 if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
   const linkErrLog = gl.getProgramInfoLog(program);
   cleanup();
@@ -160,43 +587,624 @@ if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
   throw new Error("Program failed to link");
 }
 
-let buffer;
 initializeAttributes();
 
 // Get uniform locations
 const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
+const centerLocation = gl.getUniformLocation(program, "u_center");
+const zoomLocation = gl.getUniformLocation(program, "u_zoom");
+const maxIterationsLocation = gl.getUniformLocation(program, "u_maxIterations");
+const rotationLocation = gl.getUniformLocation(program, "u_rotation");
+const escapeRadiusLocation = gl.getUniformLocation(program, "u_escapeRadius");
+const colorOffsetLocation = gl.getUniformLocation(program, "u_colorOffset");
+const colorSpeedLocation = gl.getUniformLocation(program, "u_colorSpeed");
+const colorIntensityLocation = gl.getUniformLocation(program, "u_colorIntensity");
+const juliaModeLocation = gl.getUniformLocation(program, "u_juliaMode");
+const juliaCLocation = gl.getUniformLocation(program, "u_juliaC");
+const juliaC2Location = gl.getUniformLocation(program, "u_juliaC2");
+const juliaC3Location = gl.getUniformLocation(program, "u_juliaC3");
+const greenRotationLocation = gl.getUniformLocation(program, "u_greenRotation");
+const redRotationLocation = gl.getUniformLocation(program, "u_redRotation");
 const timeLocation = gl.getUniformLocation(program, "u_time");
+const colorPaletteLocation = gl.getUniformLocation(program, "u_colorPalette");
 
-// Animation start time
-let startTime = Date.now();
+// Mandelbrot parameters (mutable for UI controls)
+let center = [0.0, 0.0]; // Default center of Mandelbrot set
+let zoom = 1.0;
+let maxIterations = 100;
+let rotation = 0.0;
+let escapeRadius = 4.0;
+let colorOffset = 3.0;
+let colorSpeed = 10.0;
+let colorIntensity = 1.0;
+let juliaMode = true; // Set Julia mode to true
+let juliaC = [-1.2900, 0.1889]; // Set initial Julia C X to -1.2900
+let colorPalette = 1; // Set to Fire palette
 
-// Enable blending for additive effect
-gl.enable(gl.BLEND);
-gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+// Animation start time for multifractal
+const startTime = Date.now();
+
+// Ease-in-out function for smooth animation
+function easeInOut(t) {
+  // Cubic ease-in-out: smooth acceleration and deceleration
+  return t < 0.5
+    ? 4 * t * t * t
+    : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+// Julia C X animation parameters
+const juliaCXAnimation = {
+  startValue: -1.2900,
+  endValue: -1.0910,
+  duration: 10000, // 10 seconds in milliseconds (one direction)
+  startTime: Date.now()
+};
+
+// Julia C values for all three layers
+let juliaC2 = [-1.2900, 0.1889]; // Second layer (green)
+let juliaC3 = [-1.2900, 0.1889]; // Third layer (blue)
+let greenRotation = 0.0; // Rotation for green fractal layer
+let redRotation = 0.0; // Rotation for red fractal layer
+
+// Green rotation animation parameters
+const greenRotationAnimation = {
+  duration: 30000, // 30 seconds in milliseconds
+  startTime: Date.now()
+};
+
+// Red rotation animation parameters (same duration and start time for synchronization)
+const redRotationAnimation = {
+  duration: 30000, // 30 seconds in milliseconds
+  startTime: greenRotationAnimation.startTime // Use same start time for perfect sync
+};
+
+// Color offset animation parameters
+const colorOffsetAnimation = {
+  startValue: 3.0,
+  endValue: 4.0,
+  duration: 15000, // 15 seconds in milliseconds (one direction)
+  startTime: Date.now()
+};
+
+// Zoom animation parameters
+const zoomAnimation = {
+  minZoom: 1.0,
+  maxZoom: 10.0,
+  transitionDuration: 1000, // 1 second transition
+  cycleDuration: 5000, // 5 seconds total (4s hold + 1s transition)
+  startTime: Date.now(),
+  currentStartValue: 1.0,
+  currentEndValue: 1.0 + Math.random() * 9.0, // Random initial value
+  currentCycleStart: Date.now()
+};
+
+// Initialize zoom with random value
+zoom = zoomAnimation.currentEndValue;
+
+// Ease-in function (cubic)
+function easeIn(t) {
+  return t * t * t;
+}
+
+// Update zoom animation (randomize with smooth transitions)
+function updateZoomAnimation() {
+  const currentTime = Date.now();
+  const timeSinceLastCycle = currentTime - zoomAnimation.currentCycleStart;
+  
+  // Check if we should start a new cycle
+  if (timeSinceLastCycle >= zoomAnimation.cycleDuration) {
+    // Start new cycle: record current zoom as start, pick new random end value
+    zoomAnimation.currentStartValue = zoom; // Use current zoom value, not previous end value
+    zoomAnimation.currentEndValue = zoomAnimation.minZoom + 
+      Math.random() * (zoomAnimation.maxZoom - zoomAnimation.minZoom);
+    zoomAnimation.currentCycleStart = currentTime;
+  }
+  
+  const elapsedInCycle = (currentTime - zoomAnimation.currentCycleStart) % zoomAnimation.cycleDuration;
+  
+  // Check if we're in the transition phase
+  if (elapsedInCycle < zoomAnimation.transitionDuration) {
+    // We're in the transition phase
+    const progress = elapsedInCycle / zoomAnimation.transitionDuration;
+    const easedProgress = easeIn(progress);
+    
+    // Interpolate between start and end values
+    zoom = zoomAnimation.currentStartValue + 
+      (zoomAnimation.currentEndValue - zoomAnimation.currentStartValue) * easedProgress;
+  } else {
+    // We're in the hold phase - keep the end value
+    zoom = zoomAnimation.currentEndValue;
+  }
+  
+  // Update the slider and display value
+  const zoomSlider = document.getElementById('zoom');
+  const zoomValue = document.getElementById('zoomValue');
+  if (zoomSlider && zoomValue) {
+    zoomSlider.value = zoom;
+    zoomValue.textContent = zoom.toFixed(3);
+  }
+}
+
+// Update color offset animation (both directions)-1.0910-
+function updateColorOffsetAnimation() {
+  const currentTime = Date.now();
+  const fullCycleDuration = colorOffsetAnimation.duration * 2; // 30 seconds total (forward + backward)
+  const elapsed = (currentTime - colorOffsetAnimation.startTime) % fullCycleDuration;
+  const cycleProgress = elapsed / fullCycleDuration;
+  
+  let progress;
+  if (cycleProgress < 0.5) {
+    // First half: forward (3.0 to 4.0)
+    progress = cycleProgress * 2; // 0 to 1
+  } else {
+    // Second half: backward (4.0 to 3.0)
+    progress = (1.0 - cycleProgress) * 2; // 1 to 0
+  }
+  
+  // Apply ease-in-out easing
+  const easedProgress = easeInOut(progress);
+  
+  // Interpolate color offset from startValue to endValue
+  colorOffset = colorOffsetAnimation.startValue + 
+    (colorOffsetAnimation.endValue - colorOffsetAnimation.startValue) * easedProgress;
+  
+  // Update the slider and display value
+  const colorOffsetSlider = document.getElementById('colorOffset');
+  const colorOffsetValue = document.getElementById('colorOffsetValue');
+  if (colorOffsetSlider && colorOffsetValue) {
+    colorOffsetSlider.value = colorOffset;
+    colorOffsetValue.textContent = colorOffset.toFixed(1);
+  }
+}
+
+// Update green rotation animation (both directions)
+function updateGreenRotationAnimation() {
+  const currentTime = Date.now();
+  const fullCycleDuration = greenRotationAnimation.duration * 2; // 60 seconds total (forward + backward)
+  const elapsed = (currentTime - greenRotationAnimation.startTime) % fullCycleDuration;
+  const cycleProgress = elapsed / fullCycleDuration;
+  
+  let progress;
+  if (cycleProgress < 0.5) {
+    // First half: forward rotation
+    progress = cycleProgress * 2; // 0 to 1
+  } else {
+    // Second half: backward rotation
+    progress = (1.0 - cycleProgress) * 2; // 1 to 0
+  }
+  
+  // Apply ease-in-out easing
+  const easedProgress = easeInOut(progress);
+  
+  // Rotate 0.1π radians (forward and backward)
+  greenRotation = easedProgress * 0.1 * Math.PI;
+}
+
+// Update red rotation animation (opposite direction to green, synchronized)
+function updateRedRotationAnimation() {
+  const currentTime = Date.now();
+  const fullCycleDuration = redRotationAnimation.duration * 2; // 60 seconds total (forward + backward)
+  const elapsed = (currentTime - redRotationAnimation.startTime) % fullCycleDuration;
+  const cycleProgress = elapsed / fullCycleDuration;
+  
+  // Use the same cycle progress as green, but inverted
+  let progress;
+  if (cycleProgress < 0.5) {
+    // First half: backward rotation (opposite to green's forward)
+    progress = (1.0 - cycleProgress * 2); // 1 to 0 (inverted)
+  } else {
+    // Second half: forward rotation (opposite to green's backward)
+    progress = (cycleProgress - 0.5) * 2; // 0 to 1 (inverted)
+  }
+  
+  // Apply ease-in-out easing
+  const easedProgress = easeInOut(progress);
+  
+  // Rotate in opposite direction (negative rotation, perfectly synchronized with green)
+  redRotation = -easedProgress * 0.1 * Math.PI;
+}
+
+// Update Julia C X with ease-in-out animation (both directions) for all layers
+function updateJuliaCXAnimation() {
+  const currentTime = Date.now();
+  const fullCycleDuration = juliaCXAnimation.duration * 2; // 20 seconds total (forward + backward)
+  
+  // Calculate progress for main layer (no offset)
+  const elapsed1 = (currentTime - juliaCXAnimation.startTime) % fullCycleDuration;
+  const cycleProgress1 = elapsed1 / fullCycleDuration;
+  
+  // Calculate progress for layer 2 (25% offset)
+  const offset2 = fullCycleDuration * 0.25; // 25% of cycle = 5 seconds
+  const elapsed2 = (currentTime - juliaCXAnimation.startTime + offset2) % fullCycleDuration;
+  const cycleProgress2 = elapsed2 / fullCycleDuration;
+  
+  // Calculate progress for layer 3 (25% offset from layer 2, so 50% total)
+  const offset3 = fullCycleDuration * 0.5; // 50% of cycle = 10 seconds
+  const elapsed3 = (currentTime - juliaCXAnimation.startTime + offset3) % fullCycleDuration;
+  const cycleProgress3 = elapsed3 / fullCycleDuration;
+  
+  // Helper function to calculate Julia C X from cycle progress
+  function calculateJuliaCX(cycleProgress) {
+    let progress;
+    if (cycleProgress < 0.5) {
+      // First half: forward (-1.2900 to -1.0910)
+      progress = cycleProgress * 2; // 0 to 1
+    } else {
+      // Second half: backward (-1.0910 to -1.2900)
+      progress = (1.0 - cycleProgress) * 2; // 1 to 0
+    }
+    
+    // Apply ease-in-out easing
+    const easedProgress = easeInOut(progress);
+    
+    // Interpolate Julia C X from startValue to endValue
+    return juliaCXAnimation.startValue + 
+      (juliaCXAnimation.endValue - juliaCXAnimation.startValue) * easedProgress;
+  }
+  
+  // Update all three layers
+  juliaC[0] = calculateJuliaCX(cycleProgress1);
+  juliaC2[0] = calculateJuliaCX(cycleProgress2);
+  juliaC3[0] = calculateJuliaCX(cycleProgress3);
+  
+  // Update the slider and display value (main layer only)
+  const juliaXSlider = document.getElementById('juliaX');
+  const juliaXValue = document.getElementById('juliaXValue');
+  if (juliaXSlider && juliaXValue) {
+    juliaXSlider.value = juliaC[0];
+    juliaXValue.textContent = juliaC[0].toFixed(4);
+  }
+}
+
+// Initialize UI controls
+function initializeControls() {
+  const centerXSlider = document.getElementById('centerX');
+  const centerYSlider = document.getElementById('centerY');
+  const zoomSlider = document.getElementById('zoom');
+  const maxIterationsSlider = document.getElementById('maxIterations');
+  const rotationSlider = document.getElementById('rotation');
+  const escapeRadiusSlider = document.getElementById('escapeRadius');
+  const colorOffsetSlider = document.getElementById('colorOffset');
+  const colorSpeedSlider = document.getElementById('colorSpeed');
+  const colorIntensitySlider = document.getElementById('colorIntensity');
+  const juliaModeCheckbox = document.getElementById('juliaMode');
+  const juliaXSlider = document.getElementById('juliaX');
+  const juliaYSlider = document.getElementById('juliaY');
+  const colorPaletteSelect = document.getElementById('colorPalette');
+  const resetBtn = document.getElementById('resetBtn');
+  
+  const centerXValue = document.getElementById('centerXValue');
+  const centerYValue = document.getElementById('centerYValue');
+  const zoomValue = document.getElementById('zoomValue');
+  const maxIterationsValue = document.getElementById('maxIterationsValue');
+  const rotationValue = document.getElementById('rotationValue');
+  const escapeRadiusValue = document.getElementById('escapeRadiusValue');
+  const colorOffsetValue = document.getElementById('colorOffsetValue');
+  const colorSpeedValue = document.getElementById('colorSpeedValue');
+  const colorIntensityValue = document.getElementById('colorIntensityValue');
+  const juliaModeValue = document.getElementById('juliaModeValue');
+  const juliaXValue = document.getElementById('juliaXValue');
+  const juliaYValue = document.getElementById('juliaYValue');
+  
+  const juliaControls = document.getElementById('juliaControls');
+  const juliaControls2 = document.getElementById('juliaControls2');
+  
+  // Update center X
+  centerXSlider.addEventListener('input', (e) => {
+    center[0] = parseFloat(e.target.value);
+    centerXValue.textContent = center[0].toFixed(3);
+  });
+  
+  // Update center Y
+  centerYSlider.addEventListener('input', (e) => {
+    center[1] = parseFloat(e.target.value);
+    centerYValue.textContent = center[1].toFixed(3);
+  });
+  
+  // Update zoom
+  zoomSlider.addEventListener('input', (e) => {
+    zoom = parseFloat(e.target.value);
+    zoomValue.textContent = zoom.toFixed(2);
+  });
+  
+  // Update max iterations
+  maxIterationsSlider.addEventListener('input', (e) => {
+    maxIterations = parseInt(e.target.value);
+    maxIterationsValue.textContent = maxIterations;
+  });
+  
+  // Update rotation
+  rotationSlider.addEventListener('input', (e) => {
+    rotation = parseFloat(e.target.value);
+    rotationValue.textContent = rotation.toFixed(2);
+  });
+  
+  // Update escape radius
+  escapeRadiusSlider.addEventListener('input', (e) => {
+    escapeRadius = parseFloat(e.target.value);
+    escapeRadiusValue.textContent = escapeRadius.toFixed(1);
+  });
+  
+  // Update color offset (animation will override this, but allow manual control)
+  colorOffsetSlider.addEventListener('input', (e) => {
+    colorOffset = parseFloat(e.target.value);
+    colorOffsetValue.textContent = colorOffset.toFixed(1);
+    // Reset animation start time when manually adjusted
+    colorOffsetAnimation.startTime = Date.now();
+    colorOffsetAnimation.startValue = colorOffset;
+  });
+  
+  // Initialize color offset slider to 3.0
+  colorOffsetSlider.value = colorOffset;
+  colorOffsetValue.textContent = colorOffset.toFixed(1);
+  
+  // Update color speed
+  colorSpeedSlider.addEventListener('input', (e) => {
+    colorSpeed = parseFloat(e.target.value);
+    colorSpeedValue.textContent = colorSpeed;
+  });
+  
+  // Update color intensity
+  colorIntensitySlider.addEventListener('input', (e) => {
+    colorIntensity = parseFloat(e.target.value);
+    colorIntensityValue.textContent = colorIntensity.toFixed(1);
+  });
+  
+  // Update Julia mode
+  juliaModeCheckbox.addEventListener('change', (e) => {
+    juliaMode = e.target.checked;
+    juliaModeValue.textContent = juliaMode ? 'On' : 'Off';
+    juliaControls.style.display = juliaMode ? 'block' : 'none';
+    juliaControls2.style.display = juliaMode ? 'block' : 'none';
+  });
+  
+  // Set Julia mode to true and show controls on initialization
+  juliaModeCheckbox.checked = true;
+  juliaMode = true;
+  juliaModeValue.textContent = 'On';
+  juliaControls.style.display = 'block';
+  juliaControls2.style.display = 'block';
+  
+  // Set color palette to Fire
+  colorPaletteSelect.value = colorPalette;
+  
+  // Update Julia C X
+  juliaXSlider.addEventListener('input', (e) => {
+    juliaC[0] = parseFloat(e.target.value);
+    juliaXValue.textContent = juliaC[0].toFixed(4);
+  });
+  
+  // Update Julia C Y
+  juliaYSlider.addEventListener('input', (e) => {
+    juliaC[1] = parseFloat(e.target.value);
+    juliaYValue.textContent = juliaC[1].toFixed(4);
+  });
+  
+  // Update color palette
+  colorPaletteSelect.addEventListener('change', (e) => {
+    colorPalette = parseInt(e.target.value);
+  });
+  
+  // Reset button
+  resetBtn.addEventListener('click', () => {
+    center = [0.0, 0.0];
+    zoom = 1.0;
+    maxIterations = 100;
+    rotation = 0.0;
+    escapeRadius = 4.0;
+    colorOffset = 3.0;
+    colorSpeed = 10.0;
+    colorIntensity = 1.0;
+    juliaMode = false;
+    juliaC = [-0.7269, 0.1889];
+    colorPalette = 0;
+    
+    centerXSlider.value = center[0];
+    centerYSlider.value = center[1];
+    zoomSlider.value = zoom;
+    maxIterationsSlider.value = maxIterations;
+    rotationSlider.value = rotation;
+    escapeRadiusSlider.value = escapeRadius;
+    colorOffsetSlider.value = colorOffset;
+    colorSpeedSlider.value = colorSpeed;
+    colorIntensitySlider.value = colorIntensity;
+    juliaModeCheckbox.checked = juliaMode;
+    juliaXSlider.value = juliaC[0];
+    juliaYSlider.value = juliaC[1];
+    colorPaletteSelect.value = colorPalette;
+    
+    centerXValue.textContent = center[0].toFixed(3);
+    centerYValue.textContent = center[1].toFixed(3);
+    zoomValue.textContent = zoom.toFixed(2);
+    maxIterationsValue.textContent = maxIterations;
+    rotationValue.textContent = rotation.toFixed(2);
+    escapeRadiusValue.textContent = escapeRadius.toFixed(1);
+    colorOffsetValue.textContent = colorOffset.toFixed(1);
+    colorSpeedValue.textContent = colorSpeed;
+    colorIntensityValue.textContent = colorIntensity.toFixed(1);
+    juliaModeValue.textContent = juliaMode ? 'On' : 'Off';
+    juliaXValue.textContent = juliaC[0].toFixed(4);
+    juliaYValue.textContent = juliaC[1].toFixed(4);
+    
+    juliaControls.style.display = juliaMode ? 'block' : 'none';
+    juliaControls2.style.display = juliaMode ? 'block' : 'none';
+  });
+}
+
+initializeControls();
+
+// Initialize bloom shaders
+initBloomShaders();
 
 function render() {
+  // Update animations
+  updateJuliaCXAnimation();
+  updateGreenRotationAnimation();
+  updateRedRotationAnimation();
+  updateColorOffsetAnimation();
+  updateZoomAnimation();
+  
   // Update viewport if canvas size changed
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
-  if (canvas.width !== width || canvas.height !== height) {
+  if (canvas.width !== width || canvas.height !== height || !sceneFramebuffer) {
     canvas.width = width;
     canvas.height = height;
     gl.viewport(0, 0, width, height);
+    
+    // Recreate framebuffers with new size
+    if (sceneFramebuffer) {
+      gl.deleteFramebuffer(sceneFramebuffer.framebuffer);
+      gl.deleteTexture(sceneFramebuffer.texture);
+    }
+    if (bloomFramebuffer1) {
+      gl.deleteFramebuffer(bloomFramebuffer1.framebuffer);
+      gl.deleteTexture(bloomFramebuffer1.texture);
+    }
+    if (bloomFramebuffer2) {
+      gl.deleteFramebuffer(bloomFramebuffer2.framebuffer);
+      gl.deleteTexture(bloomFramebuffer2.texture);
+    }
+    
+    sceneFramebuffer = createFramebuffer(width, height);
+    bloomFramebuffer1 = createFramebuffer(width, height);
+    bloomFramebuffer2 = createFramebuffer(width, height);
   }
   
-  // Calculate time in seconds
-  const currentTime = (Date.now() - startTime) / 1000.0;
-  
-  // Clear and draw
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.useProgram(program);
-  
-  // Set uniforms
-  gl.uniform2f(resolutionLocation, width, height);
-  gl.uniform1f(timeLocation, currentTime);
-  
-  // Draw full-screen quad (2 triangles = 6 vertices)
-  gl.drawArrays(gl.TRIANGLES, 0, 6);
+  if (bloomEnabled) {
+    // Pass 1: Render scene to framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFramebuffer.framebuffer);
+    gl.viewport(0, 0, width, height);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(program);
+    
+    gl.uniform2f(resolutionLocation, width, height);
+    gl.uniform2f(centerLocation, center[0], center[1]);
+    gl.uniform1f(zoomLocation, zoom);
+    gl.uniform1i(maxIterationsLocation, maxIterations);
+    gl.uniform1f(rotationLocation, rotation);
+    gl.uniform1f(escapeRadiusLocation, escapeRadius);
+    gl.uniform1f(colorOffsetLocation, colorOffset);
+    gl.uniform1f(colorSpeedLocation, colorSpeed);
+    gl.uniform1f(colorIntensityLocation, colorIntensity);
+    gl.uniform1i(juliaModeLocation, juliaMode ? 1 : 0);
+    gl.uniform2f(juliaCLocation, juliaC[0], juliaC[1]);
+    gl.uniform2f(juliaC2Location, juliaC2[0], juliaC2[1]);
+    gl.uniform2f(juliaC3Location, juliaC3[0], juliaC3[1]);
+    gl.uniform1f(greenRotationLocation, greenRotation);
+    gl.uniform1f(redRotationLocation, redRotation);
+    gl.uniform1f(timeLocation, (Date.now() - startTime) / 1000.0);
+    gl.uniform1i(colorPaletteLocation, colorPalette);
+    
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    
+    // Pass 2: Extract bright areas
+    gl.bindFramebuffer(gl.FRAMEBUFFER, bloomFramebuffer1.framebuffer);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(bloomExtractProgram);
+    
+    const extractThresholdLocation = gl.getUniformLocation(bloomExtractProgram, "u_threshold");
+    const extractResolutionLocation = gl.getUniformLocation(bloomExtractProgram, "u_resolution");
+    const extractTextureLocation = gl.getUniformLocation(bloomExtractProgram, "u_texture");
+    
+    gl.uniform1f(extractThresholdLocation, bloomThreshold);
+    gl.uniform2f(extractResolutionLocation, width, height);
+    
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, sceneFramebuffer.texture);
+    gl.uniform1i(extractTextureLocation, 0);
+    
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    
+    // Pass 3: Blur (ping-pong between two framebuffers)
+    gl.useProgram(blurProgram);
+    const blurResolutionLocation = gl.getUniformLocation(blurProgram, "u_resolution");
+    const blurDirectionLocation = gl.getUniformLocation(blurProgram, "u_direction");
+    const blurTextureLocation = gl.getUniformLocation(blurProgram, "u_texture");
+    
+    gl.uniform2f(blurResolutionLocation, width, height);
+    
+    let currentRead = bloomFramebuffer1;
+    let currentWrite = bloomFramebuffer2;
+    
+    for (let i = 0; i < bloomBlurPasses; i++) {
+      // Horizontal blur
+      gl.bindFramebuffer(gl.FRAMEBUFFER, currentWrite.framebuffer);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform2f(blurDirectionLocation, 1.0, 0.0);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, currentRead.texture);
+      gl.uniform1i(blurTextureLocation, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      
+      // Swap buffers
+      const temp = currentRead;
+      currentRead = currentWrite;
+      currentWrite = temp;
+      
+      // Vertical blur
+      gl.bindFramebuffer(gl.FRAMEBUFFER, currentWrite.framebuffer);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform2f(blurDirectionLocation, 0.0, 1.0);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, currentRead.texture);
+      gl.uniform1i(blurTextureLocation, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      
+      // Swap buffers
+      const temp2 = currentRead;
+      currentRead = currentWrite;
+      currentWrite = temp2;
+    }
+    
+    // Pass 4: Composite scene + bloom
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, width, height);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(compositeProgram);
+    
+    const compositeSceneLocation = gl.getUniformLocation(compositeProgram, "u_scene");
+    const compositeBloomLocation = gl.getUniformLocation(compositeProgram, "u_bloom");
+    const compositeIntensityLocation = gl.getUniformLocation(compositeProgram, "u_bloomIntensity");
+    
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, sceneFramebuffer.texture);
+    gl.uniform1i(compositeSceneLocation, 0);
+    
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, currentRead.texture);
+    gl.uniform1i(compositeBloomLocation, 1);
+    
+    gl.uniform1f(compositeIntensityLocation, bloomIntensity);
+    
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  } else {
+    // Render without bloom
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, width, height);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(program);
+    
+    gl.uniform2f(resolutionLocation, width, height);
+    gl.uniform2f(centerLocation, center[0], center[1]);
+    gl.uniform1f(zoomLocation, zoom);
+    gl.uniform1i(maxIterationsLocation, maxIterations);
+    gl.uniform1f(rotationLocation, rotation);
+    gl.uniform1f(escapeRadiusLocation, escapeRadius);
+    gl.uniform1f(colorOffsetLocation, colorOffset);
+    gl.uniform1f(colorSpeedLocation, colorSpeed);
+    gl.uniform1f(colorIntensityLocation, colorIntensity);
+    gl.uniform1i(juliaModeLocation, juliaMode ? 1 : 0);
+    gl.uniform2f(juliaCLocation, juliaC[0], juliaC[1]);
+    gl.uniform2f(juliaC2Location, juliaC2[0], juliaC2[1]);
+    gl.uniform2f(juliaC3Location, juliaC3[0], juliaC3[1]);
+    gl.uniform1f(greenRotationLocation, greenRotation);
+    gl.uniform1f(redRotationLocation, redRotation);
+    gl.uniform1f(timeLocation, (Date.now() - startTime) / 1000.0);
+    gl.uniform1i(colorPaletteLocation, colorPalette);
+    
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
   
   requestAnimationFrame(render);
 }
@@ -248,6 +1256,7 @@ function cleanup() {
     gl.deleteProgram(program);
   }
 }
+
 
 </script>
 </body>

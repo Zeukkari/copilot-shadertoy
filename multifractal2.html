@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Animated Fractal</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            background-color: #000;
+            color: #888;
+        }
+
+        canvas {
+            filter: contrast(1.2) brightness(0.9);
+        }
+    </style>
+</head>
+
+<body>
+    <p>Dark Animated Fractal</p>
+    <canvas>Your browser does not seem to support HTML canvas.</canvas>
+    <div id="controls" class="controls-panel" style="display: none;">
+        <!-- Controls hidden by default for cleaner look, but kept for logic compatibility -->
+    </div>
+
+    <script type="x-shader/x-vertex" id="vertex-shader">
+  attribute vec2 a_position;
+  varying vec2 v_uv;
+  
+  void main() {
+    v_uv = a_position * 0.5 + 0.5; // Convert from -1..1 to 0..1
+    gl_Position = vec4(a_position, 0.0, 1.0);
+  }
+</script>
+
+    <script type="x-shader/x-fragment" id="fragment-shader">
+  precision mediump float;
+  
+  uniform vec2 u_resolution;
+  uniform vec2 u_center;
+  uniform float u_zoom;
+  uniform float u_time;
+  
+  varying vec2 v_uv;
+  
+  // Dark, high-contrast palette
+  vec3 paletteDark(float t) {
+    // Deep purples, dark blues, and sharp white highlights
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.3, 0.20, 0.20);
+    
+    return a + b * cos(6.28318 * (c * t + d + u_time * 0.1));
+  }
+  
+  // Another dark palette
+  vec3 paletteElectric(float t) {
+      return vec3(
+          0.1 + 0.9 * pow(sin(t * 10.0 + u_time), 4.0),
+          0.05 + 0.5 * pow(sin(t * 15.0 - u_time * 0.5), 2.0),
+          0.2 + 0.8 * pow(cos(t * 5.0 + u_time * 0.2), 2.0)
+      );
+  }
+
+  // Julia set computation
+  float julia(vec2 uv, vec2 c, float zoom, int maxIter) {
+      vec2 z = (uv - 0.5) * 2.0;
+      z.x *= u_resolution.x / u_resolution.y;
+      z /= zoom;
+      z += u_center;
+      
+      int iterations = 0;
+
+      
+      for(int i = 0; i < 256; i++) {
+          if (i >= maxIter) break;
+          // z = z^2 + c
+          float x = (z.x * z.x - z.y * z.y) + c.x;
+          float y = (z.x * z.y * 2.0) + c.y;
+          z = vec2(x, y);
+          
+          if(dot(z, z) > 4.0) {
+              iterations = i;
+              break;
+          }
+      }
+      
+      if(iterations == maxIter) return 0.0;
+      
+      // Smooth coloring
+      float sn = float(iterations) - log2(log2(dot(z,z))) + 4.0;
+      return sn / float(maxIter);
+  }
+
+  void main() {
+      // Animated Julia Constant
+      vec2 c = vec2(
+          -0.7 + 0.05 * sin(u_time * 0.3),
+          0.27015 + 0.05 * cos(u_time * 0.4)
+      );
+      
+      // Layer 1: Main structure
+      float f1 = julia(v_uv, c, u_zoom, 64);
+      vec3 col1 = paletteDark(f1 + u_time * 0.05);
+      
+      // Layer 2: Offset structure for "ghosting" effect - Low iterations for speed
+      vec2 c2 = c + vec2(0.01 * sin(u_time), 0.01 * cos(u_time));
+      float f2 = julia(v_uv, c2, u_zoom * 0.9, 16);
+      vec3 col2 = paletteElectric(f2 * 2.0);
+      
+      // Combine layers
+      vec3 finalColor = mix(col1, col2, 0.3);
+      
+      // Vignette
+      vec2 uv = v_uv * 2.0 - 1.0;
+      float vig = 1.0 - length(uv) * 0.5;
+      finalColor *= vig;
+      
+      // Crush blacks for contrast
+      finalColor = pow(finalColor, vec3(1.5));
+      
+      gl_FragColor = vec4(finalColor, 1.0);
+  }
+</script>
+
+    <script>
+        const canvas = document.querySelector("canvas");
+        const gl = canvas.getContext("webgl");
+
+        // Shader setup
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error(gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+
+        const vertexShaderSource = document.getElementById("vertex-shader").text;
+        const fragmentShaderSource = document.getElementById("fragment-shader").text;
+
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error(gl.getProgramInfoLog(program));
+        }
+
+        gl.useProgram(program);
+
+        // Attributes
+        const positionLocation = gl.getAttribLocation(program, "a_position");
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            -1, -1, 1, -1, -1, 1,
+            -1, 1, 1, -1, 1, 1
+        ]), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(positionLocation);
+        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+        // Uniforms
+        const uResolution = gl.getUniformLocation(program, "u_resolution");
+        const uCenter = gl.getUniformLocation(program, "u_center");
+        const uZoom = gl.getUniformLocation(program, "u_zoom");
+        const uTime = gl.getUniformLocation(program, "u_time");
+
+        // Animation State
+        let startTime = Date.now();
+        let zoom = 1.0;
+        let center = [0, 0];
+
+        function render() {
+            const width = canvas.clientWidth * 0.5; // Render at 50% resolution
+            const height = canvas.clientHeight * 0.5;
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+                gl.viewport(0, 0, width, height);
+            }
+
+            const time = (Date.now() - startTime) * 0.001;
+
+            // Verbose Animation Logic
+            // 1. Zoom oscillates deeply
+            zoom = 1.2 + 0.8 * Math.sin(time * 0.2);
+
+            // 2. Center wanders in a figure-8
+            center[0] = 0.3 * Math.sin(time * 0.3);
+            center[1] = 0.3 * Math.sin(time * 0.6) * Math.cos(time * 0.3);
+
+            gl.uniform2f(uResolution, width, height);
+            gl.uniform2f(uCenter, center[0], center[1]);
+            gl.uniform1f(uZoom, zoom);
+            gl.uniform1f(uTime, time);
+
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            requestAnimationFrame(render);
+        }
+
+        render();
+    </script>
+</body>
+
+</html>

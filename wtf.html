@@ -1,17 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello World! Hello GLSL!</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Raymarching Experiment</title>
+  <link rel="stylesheet" href="style.css">
 
 </head>
+
 <body>
-<p>Hello World! Hello GLSL!</p>
-<canvas>Your browser does not seem to support HTML canvas.</canvas>
-<button id="play" class="audio-btn">Start</button>
-<script type="x-shader/x-vertex" id="vertex-shader">
+  <p>Raymarching Experiment - 3D SDFs</p>
+  <canvas>Your browser does not seem to support HTML canvas.</canvas>
+  <button id="play" class="audio-btn">Start Experience</button>
+  <script type="x-shader/x-vertex" id="vertex-shader">
   attribute vec2 a_position;
   varying vec2 v_uv;
   
@@ -20,7 +22,7 @@
     gl_Position = vec4(a_position, 0.0, 1.0);
   }
 </script>
-<script type="x-shader/x-fragment" id="fragment-shader">
+  <script type="x-shader/x-fragment" id="fragment-shader">
   precision mediump float;
   
   uniform vec2 u_resolution;
@@ -31,954 +33,866 @@
   uniform float u_transitionProgress;
   uniform float u_speechPhase;
   uniform int u_isSpeaking;
+  uniform int u_beatCount;
   
   varying vec2 v_uv;
-  
-  // Mandelbrot computation function
-  float mandelbrot(vec2 uv, vec2 center, float zoom, float rotation, int maxIter) {
-    vec2 c = (uv - 0.5) * 2.0;
-    c.x *= u_resolution.x / u_resolution.y;
-    
-    // Apply rotation
-    float cosR = cos(rotation);
-    float sinR = sin(rotation);
-    c = vec2(c.x * cosR - c.y * sinR, c.x * sinR + c.y * cosR);
-    
-    // Apply zoom and center
-    c = c / zoom + center;
-    
-    vec2 z = vec2(0.0);
-    int iterations = 0;
-    
-    for (int i = 0; i < 256; i++) {
-      if (i >= maxIter) break;
+
+  // Constants
+  #define MAX_STEPS 100
+  #define MAX_DIST 100.0
+  #define SURF_DIST 0.01
+
+  // Rotation matrix
+  mat2 rot(float a) {
+      float s = sin(a);
+      float c = cos(a);
+      return mat2(c, -s, s, c);
+  }
+
+  // Smooth min function for blending shapes
+  float smin(float a, float b, float k) {
+      float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+      return mix(b, a, h) - k * h * (1.0 - h);
+  }
+
+  // SDF Primitives
+  float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+  }
+
+  float sdOctahedron(vec3 p, float s) {
+    p = abs(p);
+    return (p.x+p.y+p.z-s)*0.57735027;
+  }
+
+  // Signed Distance Function for the scene
+  float GetDist(vec3 p) {
+      // Repetition
+      vec3 p_infinite = p;
+      p_infinite.xz = mod(p.xz + 5.0, 10.0) - 5.0; // Repeat every 10 units in X and Z
       
-      float x = (z.x * z.x - z.y * z.y) + c.x;
-      float y = (z.x * z.y * 2.0) + c.y;
-      z = vec2(x, y);
+      // Sphere
+      vec3 sPos = p_infinite - vec3(0, 1.0, 0);
       
-      if (dot(z, z) > 4.0) {
-        iterations = i;
-        break;
+      // Pulse the sphere size with the beat
+      float sphereRadius = 1.0 + u_beatPhase * 0.3 * u_transitionProgress;
+      
+      // Morphing effect during speech
+      if (u_isSpeaking > 0) {
+          sphereRadius += sin(p.y * 10.0 + u_time * 10.0) * 0.2 * u_speechPhase;
       }
-    }
-    
-    if (iterations == maxIter) {
-      return 0.0; // Return 0.0 for inside the set (becomes white after inversion)
-    }
-    
-    return float(iterations) / float(maxIter);
+      
+      float shapeDist = 0.0;
+      int shapeType = int(mod(float(u_beatCount), 3.0));
+      
+      if (shapeType == 0) {
+          // Sphere
+          shapeDist = length(sPos) - sphereRadius;
+      } else if (shapeType == 1) {
+          // Cube
+          // Rotate the cube a bit so it looks dynamic
+          vec3 pBox = sPos;
+          pBox.xz *= rot(u_time);
+          pBox.xy *= rot(u_time * 0.5);
+          shapeDist = sdBox(pBox, vec3(sphereRadius * 0.7)); // Scale down slightly to match volume
+      } else {
+          // Octahedron (Triangles)
+          vec3 pOct = sPos;
+          pOct.xz *= rot(u_time);
+          pOct.yz *= rot(u_time * 0.8);
+          shapeDist = sdOctahedron(pOct, sphereRadius);
+      }
+      
+      // Ground plane with waves
+      float groundHeight = 0.0;
+      // Add some waves to the ground
+      groundHeight += sin(p.x * 0.5 + u_time) * 0.2;
+      groundHeight += sin(p.z * 0.3 + u_time * 0.5) * 0.2;
+      
+      float planeDist = p.y - groundHeight;
+      
+      // Combine shapes
+      float d = smin(shapeDist, planeDist, 1.0);
+      
+      return d;
   }
-  
-  // Simple noise function
-  float noise(vec2 p) {
-    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+
+  // Raymarching loop
+  float RayMarch(vec3 ro, vec3 rd) {
+      float dO = 0.0;
+      
+      for(int i = 0; i < MAX_STEPS; i++) {
+          vec3 p = ro + rd * dO;
+          float dS = GetDist(p);
+          dO += dS;
+          if(dO > MAX_DIST || dS < SURF_DIST) break;
+      }
+      
+      return dO;
   }
-  
-  // Check if point is inside triangle using barycentric coordinates
-  float pointInTriangle(vec2 p, vec2 a, vec2 b, vec2 c) {
-    vec2 v0 = c - a;
-    vec2 v1 = b - a;
-    vec2 v2 = p - a;
-    
-    float dot00 = dot(v0, v0);
-    float dot01 = dot(v0, v1);
-    float dot02 = dot(v0, v2);
-    float dot11 = dot(v1, v1);
-    float dot12 = dot(v1, v2);
-    
-    float invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01);
-    float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
-    float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
-    
-    return (u >= 0.0) && (v >= 0.0) && (u + v <= 1.0) ? 1.0 : 0.0;
+
+  // Calculate normal
+  vec3 GetNormal(vec3 p) {
+      float d = GetDist(p);
+      vec2 e = vec2(0.01, 0);
+      
+      vec3 n = d - vec3(
+          GetDist(p - e.xyy),
+          GetDist(p - e.yxy),
+          GetDist(p - e.yyx)
+      );
+      
+      return normalize(n);
   }
-  
-  // Check if point is inside hexagon
-  float pointInHexagon(vec2 p, vec2 center, float radius) {
-    vec2 pos = p - center;
-    float angle = atan(pos.y, pos.x);
-    float dist = length(pos);
-    
-    // Hexagon has 6 sides, so we check distance to each edge
-    float angleStep = 3.14159 / 3.0; // 60 degrees in radians
-    float normalizedAngle = mod(angle + angleStep * 0.5, angleStep) - angleStep * 0.5;
-    float edgeDist = radius * cos(angleStep * 0.5) / cos(normalizedAngle);
-    
-    return dist <= edgeDist ? 1.0 : 0.0;
+
+  // Lighting calculation
+  vec3 GetLight(vec3 p) {
+      // Light position moves
+      vec3 lightPos = vec3(0, 5, 6);
+      lightPos.xz += vec2(sin(u_time), cos(u_time)) * 2.0;
+      
+      vec3 l = normalize(lightPos - p);
+      vec3 n = GetNormal(p);
+      
+      // Diffuse - Sharper falloff for contrast
+      float dif = clamp(dot(n, l), 0.0, 1.0);
+      dif = pow(dif, 2.0); 
+      
+      // Specular - Tight and bright
+      vec3 viewDir = normalize(p - vec3(0, 1, -6)); // Approx view dir
+      vec3 reflectDir = reflect(-l, n);
+      float spec = pow(max(dot(viewDir, reflectDir), 0.0), 64.0); // Sharper specular
+      
+      // Shadows
+      float d = RayMarch(p + n * SURF_DIST * 2.0, l);
+      if(d < length(lightPos - p)) dif *= 0.0; // Pitch black shadows
+      
+      // Edgy Palette
+      vec3 baseCol = vec3(0.05, 0.0, 0.15); // Deep Purple/Blue background
+      vec3 lightColor = vec3(0.0, 1.0, 1.0); // Cyan Light
+      vec3 beatColor = vec3(1.0, 0.0, 0.5); // Hot Pink Beat Pulse
+      
+      vec3 col = baseCol;
+      col += lightColor * dif;
+      col += vec3(1.0) * spec; // White highlights
+      
+      // Add ambient color based on normal (Rim light feel)
+      float rim = 1.0 - max(dot(viewDir, n), 0.0);
+      rim = pow(rim, 3.0);
+      col += vec3(0.5, 0.0, 1.0) * rim * 0.5;
+      
+      // Add beat color - Aggressive flash
+      col += beatColor * u_beatPhase * u_transitionProgress;
+      
+      // Add speech color - Glitchy invert
+      if (u_isSpeaking > 0) {
+          vec3 speechCol = vec3(0.0, 1.0, 0.0) * u_speechPhase; // Matrix Green
+          col = mix(col, speechCol, u_speechPhase * 0.5);
+          // Slight color inversion for edginess
+          col = mix(col, 1.0 - col, u_speechPhase * 0.2);
+      }
+      
+      return col;
   }
-  
-  // Render shape that morphs between triangle and hexagon
-  float renderMorphingShape(vec2 uv) {
-    // Animation cycle: 30 seconds triangle -> hexagon, 30 seconds hexagon -> triangle
-    float cycleTime = 30.0;
-    float fullCycle = cycleTime * 2.0; // 60 seconds total
-    float t = mod(u_time, fullCycle);
-    float morphFactor;
-    
-    if (t < cycleTime) {
-      // First 30 seconds: triangle (0) to hexagon (1)
-      morphFactor = t / cycleTime;
-    } else {
-      // Next 30 seconds: hexagon (1) to triangle (0)
-      float t2 = t - cycleTime;
-      morphFactor = 1.0 - (t2 / cycleTime);
-    }
-    
-    // Ultra-smooth interpolation using smootherstep (quintic easing)
-    // This provides a much smoother transition than regular smoothstep
-    float t_smooth = morphFactor;
-    morphFactor = t_smooth * t_smooth * t_smooth * (t_smooth * (t_smooth * 6.0 - 15.0) + 10.0);
-    
-    // Triangle shape
-    vec2 v0 = vec2(0.5, 0.9);   // Top center
-    vec2 v1 = vec2(0.1, 0.1);   // Bottom left
-    vec2 v2 = vec2(0.9, 0.1);   // Bottom right
-    float triangleAlpha = pointInTriangle(uv, v0, v1, v2);
-    
-    // Hexagon shape (centered, scaled to fill screen)
-    vec2 center = vec2(0.5, 0.5);
-    float hexRadius = 0.4;
-    float hexAlpha = pointInHexagon(uv, center, hexRadius);
-    
-    // Morph between triangle and hexagon with smooth transition
-    return mix(triangleAlpha, hexAlpha, morphFactor);
-  }
-  
-  // Screen curvature/distortion with hallucinogenic warping
-  vec2 crtDistort(vec2 uv) {
-    uv = (uv - 0.5) * 2.0;
-    
-    // Radial distortion with beat sync, speech sync, and smooth transition
-    float dist = length(uv);
-    float beatDistortion = 1.0 + 0.15 * (uv.x * uv.x + uv.y * uv.y);
-    beatDistortion += u_beatPhase * 0.1 * u_transitionProgress; // Pulse on beat, scaled by transition
-    beatDistortion += u_speechPhase * 0.2 * u_transitionProgress; // Pulse on speech, scaled by transition
-    uv *= beatDistortion;
-    
-    // Psychedelic wave distortion (slowed down) with beat sync, speech sync, and transition
-    float waveIntensity = 0.1 * u_transitionProgress;
-    waveIntensity += u_beatPhase * 0.05 * u_transitionProgress;
-    waveIntensity += u_speechPhase * 0.15 * u_transitionProgress; // Stronger waves during speech
-    float waveX = sin(uv.y * 3.0 + u_time * 0.5 + u_speechPhase * 2.0) * waveIntensity;
-    float waveY = cos(uv.x * 3.0 + u_time * 0.375 + u_speechPhase * 2.0) * waveIntensity;
-    uv += vec2(waveX, waveY);
-    
-    // Spiral distortion (slowed down) with beat sync, speech sync, and transition
-    float angle = atan(uv.y, uv.x) + dist * 2.0;
-    angle += u_time * 0.25 * u_transitionProgress;
-    angle += u_speechPhase * 1.5 * u_transitionProgress; // Rotate more during speech
-    float spiral = sin(angle * 3.0) * (0.05 + u_beatPhase * 0.03 + u_speechPhase * 0.08) * u_transitionProgress;
-    uv += vec2(cos(angle), sin(angle)) * spiral;
-    
-    return (uv + 1.0) * 0.5;
-  }
-  
+
   void main() {
-    // Apply CRT screen distortion
-    vec2 distortedUV = crtDistort(v_uv);
+    // Normalized pixel coordinates (from -0.5 to 0.5)
+    vec2 uv = (v_uv - 0.5) * 2.0;
+    uv.x *= u_resolution.x / u_resolution.y;
+
+    // Camera setup
+    vec3 ro = vec3(0, 2, -6); // Ray Origin
     
-    // Enhanced chromatic aberration with psychedelic separation, beat sync, and speech sync (smooth transition)
-    float aberration = 0.008 + (0.005 * sin(u_time * 0.75) + u_beatPhase * 0.01 + u_speechPhase * 0.015) * u_transitionProgress;
-    vec2 offsetR = vec2(
-      aberration * sin(u_time * 1.0 + distortedUV.y * 10.0 + u_beatPhase * 2.0 + u_speechPhase * 3.0) * u_transitionProgress,
-      aberration * 0.5 * cos(u_time * 0.875 + distortedUV.x * 8.0 + u_speechPhase * 2.5) * u_transitionProgress
-    );
-    vec2 offsetG = vec2(0.0, 0.0);
-    vec2 offsetB = vec2(
-      -aberration * sin(u_time * 1.0 + distortedUV.y * 10.0 + u_beatPhase * 2.0 + u_speechPhase * 3.0) * u_transitionProgress,
-      -aberration * 0.5 * cos(u_time * 0.875 + distortedUV.x * 8.0 + u_speechPhase * 2.5) * u_transitionProgress
-    );
+    // Move camera forward over time
+    ro.z += u_time * 2.0;
+    ro.y += sin(u_time * 0.5) * 0.5;
     
-    // Sample fractal with different UV offsets for RGB channels
-    vec2 uvR = distortedUV + offsetR;
-    vec2 uvG = distortedUV + offsetG;
-    vec2 uvB = distortedUV + offsetB;
+    vec3 lookAt = ro + vec3(0, 0, 1);
+    float zoom = 1.0;
     
-    // Compute fractal for each channel
-    vec3 finalColor = vec3(0.0);
+    vec3 f = normalize(lookAt - ro);
+    vec3 r = normalize(cross(vec3(0, 1, 0), f));
+    vec3 u = cross(f, r);
     
-    // All fractals use the same static position before audio starts
-    vec2 staticCenter = vec2(-0.5, 0.0);
-    float staticZoom = 1.0;
-    float staticRot = 0.0;
+    vec3 c = ro + f * zoom;
+    vec3 i = c + uv.x * r + uv.y * u;
+    vec3 rd = normalize(i - ro); // Ray Direction
     
-    // Smooth transition interpolation
-    float transition = u_transitionProgress;
+    // Render
+    float d = RayMarch(ro, rd);
     
-    // Layer 1: Red/Orange fractal
-    float t1 = u_time * 0.15 * transition;
-    vec2 targetCenter1 = vec2(-0.5 + 0.2 * sin(t1), 0.0 + 0.2 * cos(t1 * 0.7));
-    float targetZoom1 = 1.0 + 0.5 * sin(t1 * 0.5);
-    float targetRot1 = t1 * 0.2;
-    vec2 center1 = mix(staticCenter, targetCenter1, transition);
-    float zoom1 = mix(staticZoom, targetZoom1, transition);
-    float rot1 = mix(staticRot, targetRot1, transition);
+    vec3 col = vec3(0);
     
-    float m1R = mandelbrot(uvR, center1, zoom1, rot1, 80);
-    float m1G = mandelbrot(uvG, center1, zoom1, rot1, 80);
-    float m1B = mandelbrot(uvB, center1, zoom1, rot1, 80);
-    
-    vec3 whiteColor1 = vec3(m1R, m1G, m1B);
-    vec3 animatedColor1 = vec3(
-      0.8 + 0.2 * cos(m1R * 20.0 + t1),
-      0.3 + 0.2 * sin(m1G * 15.0),
-      0.1
-    ) * vec3(m1R, m1G, m1B) * 0.6;
-    vec3 color1 = mix(whiteColor1, animatedColor1, transition);
-    finalColor += color1;
-    
-    // Layer 2: Cyan/Blue fractal
-    float t2 = u_time * 0.2 * transition;
-    vec2 targetCenter2 = vec2(-0.75 + 0.15 * cos(t2 * 0.8), 0.1 + 0.15 * sin(t2));
-    float targetZoom2 = 1.2 + 0.3 * cos(t2 * 0.6);
-    float targetRot2 = -t2 * 0.15;
-    vec2 center2 = mix(staticCenter, targetCenter2, transition);
-    float zoom2 = mix(staticZoom, targetZoom2, transition);
-    float rot2 = mix(staticRot, targetRot2, transition);
-    
-    float m2R = mandelbrot(uvR, center2, zoom2, rot2, 100);
-    float m2G = mandelbrot(uvG, center2, zoom2, rot2, 100);
-    float m2B = mandelbrot(uvB, center2, zoom2, rot2, 100);
-    
-    vec3 whiteColor2 = vec3(m2R, m2G, m2B);
-    vec3 animatedColor2 = vec3(
-      0.1,
-      0.5 + 0.3 * cos(m2G * 18.0 + t2 * 2.0),
-      0.9 + 0.1 * sin(m2B * 12.0)
-    ) * vec3(m2R, m2G, m2B) * 0.5;
-    vec3 color2 = mix(whiteColor2, animatedColor2, transition);
-    finalColor += color2;
-    
-    // Layer 3: Green/Magenta fractal
-    float t3 = u_time * 0.25 * transition;
-    vec2 targetCenter3 = vec2(-0.2 + 0.1 * sin(t3 * 1.2), 0.8 + 0.1 * cos(t3 * 0.9));
-    float targetZoom3 = 0.8 + 0.4 * sin(t3 * 0.7);
-    float targetRot3 = t3 * 0.25;
-    vec2 center3 = mix(staticCenter, targetCenter3, transition);
-    float zoom3 = mix(staticZoom, targetZoom3, transition);
-    float rot3 = mix(staticRot, targetRot3, transition);
-    
-    float m3R = mandelbrot(uvR, center3, zoom3, rot3, 90);
-    float m3G = mandelbrot(uvG, center3, zoom3, rot3, 90);
-    float m3B = mandelbrot(uvB, center3, zoom3, rot3, 90);
-    
-    vec3 whiteColor3 = vec3(m3R, m3G, m3B);
-    vec3 animatedColor3 = vec3(
-      0.2 + 0.3 * sin(m3R * 16.0),
-      0.8 + 0.2 * cos(m3G * 14.0 + t3),
-      0.4 + 0.3 * sin(m3B * 10.0)
-    ) * vec3(m3R, m3G, m3B) * 0.4;
-    vec3 color3 = mix(whiteColor3, animatedColor3, transition);
-    finalColor += color3;
-    
-    // Layer 4: Purple/Yellow fractal
-    float t4 = u_time * 0.125 * transition;
-    vec2 targetCenter4 = vec2(0.0 + 0.12 * cos(t4 * 0.5), -0.5 + 0.12 * sin(t4 * 0.6));
-    float targetZoom4 = 1.1 + 0.2 * cos(t4 * 0.4);
-    float targetRot4 = -t4 * 0.1;
-    vec2 center4 = mix(staticCenter, targetCenter4, transition);
-    float zoom4 = mix(staticZoom, targetZoom4, transition);
-    float rot4 = mix(staticRot, targetRot4, transition);
-    
-    float m4R = mandelbrot(uvR, center4, zoom4, rot4, 85);
-    float m4G = mandelbrot(uvG, center4, zoom4, rot4, 85);
-    float m4B = mandelbrot(uvB, center4, zoom4, rot4, 85);
-    
-    vec3 whiteColor4 = vec3(m4R, m4G, m4B);
-    vec3 animatedColor4 = vec3(
-      0.6 + 0.2 * cos(m4R * 22.0),
-      0.3 + 0.2 * sin(m4G * 19.0),
-      0.7 + 0.2 * cos(m4B * 17.0 + t4)
-    ) * vec3(m4R, m4G, m4B) * 0.35;
-    vec3 color4 = mix(whiteColor4, animatedColor4, transition);
-    finalColor += color4;
-    
-    // Enhanced contrast and color enhancement with beat sync and smooth transition
-    float contrastBoost = 0.75 - u_beatPhase * 0.1 * u_transitionProgress; // More contrast on beat, scaled by transition
-    finalColor = pow(finalColor, vec3(contrastBoost));
-    
-    // Intense color cycling/shifting (slowed down) with beat sync, speech sync, and transition
-    float colorShift = (u_time * 0.125 + u_beatPhase * 0.5 + u_speechPhase * 1.0) * u_transitionProgress; // Shift colors on beat and speech, scaled by transition
-    vec3 colorShiftVec = vec3(
-      sin(colorShift),
-      sin(colorShift + 2.094), // 120 degrees
-      sin(colorShift + 4.189)  // 240 degrees
-    ) * 0.3 + 0.7;
-    // Blend between no color shift and full color shift
-    finalColor = mix(finalColor, finalColor * colorShiftVec, u_transitionProgress);
-    
-    // Beat-synced and speech-synced brightness pulse with transition
-    finalColor *= (1.0 + u_beatPhase * 0.3 * u_transitionProgress + u_speechPhase * 0.4 * u_transitionProgress);
-    
-    // Increased saturation and contrast with transition
-    float luminance = dot(finalColor, vec3(0.299, 0.587, 0.114));
-    float saturation = mix(1.0, 1.8 + u_beatPhase * 0.4, u_transitionProgress); // Transition from 1.0 to animated saturation
-    finalColor = mix(vec3(luminance), finalColor, saturation);
-    
-    // Contrast boost with beat sync and transition
-    float contrast = mix(1.0, 1.5 + u_beatPhase * 0.3, u_transitionProgress);
-    finalColor = (finalColor - 0.5) * contrast + 0.5;
-    
-    finalColor = clamp(finalColor, 0.0, 1.0);
-    
-    // CRT Effects
-    vec2 screenUV = distortedUV;
-    
-    // Scanlines
-    float scanline = sin(screenUV.y * u_resolution.y * 0.7) * 0.5 + 0.5;
-    scanline = pow(scanline, 8.0);
-    finalColor *= mix(0.95, 1.0, scanline);
-    
-    // Horizontal scanline flicker
-    float flicker = 1.0;
-    if (u_audioStarted > 0) {
-      flicker = 0.98 + 0.02 * sin(u_time * 30.0);
+    if(d < MAX_DIST) {
+        vec3 p = ro + rd * d;
+        col = GetLight(p);
+        
+        // Fog - Dark and mysterious
+        float fog = 1.0 / (1.0 + d * d * 0.01);
+        col = mix(vec3(0.0, 0.0, 0.05), col, fog);
+    } else {
+        // Background - Almost black
+        col = vec3(0.0, 0.0, 0.05);
     }
-    finalColor *= flicker;
     
     // Vignette
-    vec2 vignetteUV = (screenUV - 0.5) * 2.0;
-    float vignette = 1.0 - dot(vignetteUV, vignetteUV) * 0.3;
-    finalColor *= vignette;
+    col *= 1.0 - length(v_uv - 0.5) * 0.5;
     
-    // Static noise
-    float staticNoise = noise(vec2(screenUV * u_resolution + (u_audioStarted > 0 ? u_time * 10.0 : 0.0)));
-    finalColor += (staticNoise - 0.5) * 0.02;
+    // Contrast boost
+    col = pow(col, vec3(1.2));
     
-    // Intense screen warp/glitch with hallucinations (slowed down), speech sync, and transition
-    float glitch = step(0.95 - u_speechPhase * 0.1, noise(vec2(u_time * 0.25 + u_speechPhase * 2.0, screenUV.y * 10.0))) * u_transitionProgress;
-    float glitch2 = step(0.97 - u_speechPhase * 0.1, noise(vec2(u_time * 0.175 + u_speechPhase * 1.5, screenUV.x * 15.0))) * u_transitionProgress;
+    // Gamma correction
+    col = pow(col, vec3(0.4545));
     
-    // Color channel swapping with transition
-    if (glitch > 0.5) {
-      vec3 temp = finalColor;
-      finalColor.r = temp.b;
-      finalColor.b = temp.g;
-      finalColor.g = temp.r;
-    }
-    
-    // Intense color shifts during glitches with transition
-    finalColor = mix(finalColor, finalColor * vec3(1.5, 0.6, 1.8), glitch * 0.5);
-    finalColor = mix(finalColor, finalColor * vec3(0.7, 1.6, 0.9), glitch2 * 0.4);
-    
-    // Enhanced color bleed with time-based variation (slowed down), speech sync, and transition
-    float bleedAmount = mix(0.2, 0.2 + 0.1 * sin(u_time * 0.5) + u_speechPhase * 0.15, u_transitionProgress);
-    finalColor.r = mix(finalColor.r, finalColor.g, bleedAmount);
-    finalColor.b = mix(finalColor.b, finalColor.g, bleedAmount);
-    
-    // Radial color gradients (kaleidoscope effect) - slowed down with transition
-    vec2 center = screenUV - 0.5;
-    float radial = length(center);
-    float angle = atan(center.y, center.x) + u_time * 0.25 * u_transitionProgress;
-    vec3 radialColor = vec3(
-      0.5 + 0.5 * sin(angle * 2.0 + radial * 10.0),
-      0.5 + 0.5 * sin(angle * 2.0 + radial * 10.0 + 2.094),
-      0.5 + 0.5 * sin(angle * 2.0 + radial * 10.0 + 4.189)
-    );
-    finalColor = mix(finalColor, finalColor * radialColor, 0.15 * u_transitionProgress);
-    
-    // Transition effect: gradual fade-in of effects with a subtle pulse
-    float transitionPulse = sin(u_transitionProgress * 3.14159) * 0.1 + 1.0; // Pulse during transition
-    finalColor *= transitionPulse;
-    
-    // Final clamp
-    finalColor = clamp(finalColor, 0.0, 1.0);
-    
-    // Check if we're in the background (inside the set - very dark areas)
-    float intensity = dot(finalColor, vec3(0.299, 0.587, 0.114));
-    if (intensity < 0.1) {
-      // Pure black background (becomes white after inversion)
-      finalColor = vec3(0.0);
-    } else {
-      // Invert colors for fractal areas (black becomes white)
-      finalColor = 1.0 - finalColor;
-    }
-    
-    // Render red shape (morphing triangle/hexagon) with 50% opacity
-    float shapeAlpha = renderMorphingShape(v_uv);
-    vec3 shapeColor = vec3(1.0, 0.0, 0.0); // Red
-    finalColor = mix(finalColor, shapeColor, shapeAlpha * 0.5); // 50% opacity
-    
-    gl_FragColor = vec4(finalColor, 1.0);
+    gl_FragColor = vec4(col, 1.0);
   }
 </script>
-<script>
-// Speech synthesis function - pitch counter
-let pitchCounter = 0;
-const pitchValues = [0, 1, 1.5, 2.0];
+  <script>
+    // Speech synthesis function - pitch counter
+    let pitchCounter = 0;
+    const pitchValues = [0, 1, 1.5, 2.0];
 
-// Store voices globally for mobile compatibility
-let availableVoices = [];
-let voicesLoaded = false;
+    // Store voices globally for mobile compatibility
+    let availableVoices = [];
+    let voicesLoaded = false;
 
-// Load voices (especially important for mobile)
-function loadVoices() {
-    availableVoices = speechSynthesis.getVoices();
-    voicesLoaded = true;
-}
+    // Load voices (especially important for mobile)
+    function loadVoices() {
+      availableVoices = speechSynthesis.getVoices();
+      voicesLoaded = true;
+    }
 
-// Initialize voices - mobile browsers need this
-if (speechSynthesis.onvoiceschanged !== undefined) {
-    speechSynthesis.onvoiceschanged = loadVoices;
-}
-// Load immediately if already available
-loadVoices();
+    // Initialize voices - mobile browsers need this
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = loadVoices;
+    }
+    // Load immediately if already available
+    loadVoices();
 
-function sayIt() {
-    // Ensure voices are loaded (critical for mobile)
-    if (!voicesLoaded || availableVoices.length === 0) {
+    function sayIt() {
+      // Ensure voices are loaded (critical for mobile)
+      if (!voicesLoaded || availableVoices.length === 0) {
         availableVoices = speechSynthesis.getVoices();
         if (availableVoices.length > 0) {
-            voicesLoaded = true;
+          voicesLoaded = true;
         }
-    }
-    
-    const text = "Mita vittua Timo";
+      }
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "fi-FI";         // force Finnish
-    utterance.rate = 0.8;               // natural speed
-    // Cycle through pitch values: 0 -> 1 -> 1.5 -> 2.0
-    utterance.pitch = pitchValues[pitchCounter % pitchValues.length];
-    pitchCounter++;
-    utterance.volume = 1;
+      const text = "Mita vittua Timo";
 
-    // Try to pick a Finnish voice if available
-    if (availableVoices.length > 0) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "fi-FI";         // force Finnish
+      utterance.rate = 0.8;               // natural speed
+      // Cycle through pitch values: 0 -> 1 -> 1.5 -> 2.0
+      utterance.pitch = pitchValues[pitchCounter % pitchValues.length];
+      pitchCounter++;
+      utterance.volume = 1;
+
+      // Try to pick a Finnish voice if available
+      if (availableVoices.length > 0) {
         const finnishVoice = availableVoices.find(v =>
-            v.lang.toLowerCase().includes("fi")
+          v.lang.toLowerCase().includes("fi")
         );
         if (finnishVoice) {
-            utterance.voice = finnishVoice;
+          utterance.voice = finnishVoice;
         }
-    }
+      }
 
-    // Track speech state (used by speech.js)
-    utterance.onstart = () => {
+      // Track speech state (used by speech.js)
+      utterance.onstart = () => {
         if (typeof isSpeaking !== 'undefined') {
-            isSpeaking = true;
+          isSpeaking = true;
         }
         if (typeof speechStartTime !== 'undefined') {
-            speechStartTime = Date.now();
+          speechStartTime = Date.now();
         }
         if (typeof speechPhase !== 'undefined') {
-            speechPhase = 1.0; // Start at full intensity
+          speechPhase = 1.0; // Start at full intensity
         }
-    };
+      };
 
-    utterance.onend = () => {
+      utterance.onend = () => {
         if (typeof isSpeaking !== 'undefined') {
-            isSpeaking = false;
+          isSpeaking = false;
         }
         if (typeof speechPhase !== 'undefined') {
-            speechPhase = 0.0;
+          speechPhase = 0.0;
         }
-    };
+      };
 
-    // Error handling for mobile
-    utterance.onerror = (event) => {
+      // Error handling for mobile
+      utterance.onerror = (event) => {
         console.log('Speech synthesis error:', event.error);
         if (typeof isSpeaking !== 'undefined') {
-            isSpeaking = false;
+          isSpeaking = false;
         }
         if (typeof speechPhase !== 'undefined') {
-            speechPhase = 0.0;
+          speechPhase = 0.0;
         }
-    };
+      };
 
-    // Cancel any ongoing speech before starting new one (important for mobile)
-    if (speechSynthesis.speaking) {
+      // Cancel any ongoing speech before starting new one (important for mobile)
+      if (speechSynthesis.speaking) {
         speechSynthesis.cancel();
+      }
+
+      speechSynthesis.speak(utterance);
     }
-    
-    speechSynthesis.speak(utterance);
-}
-</script>
-<script>
-// Speech synthesis state
-let isSpeaking = false;
-let speechPhase = 0.0; // For animation effects
-let speechStartTime = 0;
-let speechInterval = null;
+  </script>
+  <script>
+    // Speech synthesis state
+    let isSpeaking = false;
+    let speechPhase = 0.0; // For animation effects
+    let speechStartTime = 0;
+    let speechInterval = null;
 
-// sayIt function moved to index.html
+    // sayIt function moved to index.html
 
-// Start speech on 10 second intervals
-function startSpeechInterval() {
-    // Speak immediately on start
-    sayIt();
-    
-    // Then repeat every 10 seconds
-    speechInterval = setInterval(() => {
+    // Start speech on 10 second intervals
+    function startSpeechInterval() {
+      // Speak immediately on start
+      sayIt();
+
+      // Then repeat every 10 seconds
+      speechInterval = setInterval(() => {
         if (!speechSynthesis.speaking) {
-            sayIt();
+          sayIt();
         }
-    }, 10000); // 10 seconds
-}
+      }, 10000); // 10 seconds
+    }
 
-// Stop speech interval
-function stopSpeechInterval() {
-    if (speechInterval) {
+    // Stop speech interval
+    function stopSpeechInterval() {
+      if (speechInterval) {
         clearInterval(speechInterval);
         speechInterval = null;
-    }
-    if (speechSynthesis.speaking) {
+      }
+      if (speechSynthesis.speaking) {
         speechSynthesis.cancel();
+      }
+      isSpeaking = false;
+      speechPhase = 0.0;
     }
-    isSpeaking = false;
-    speechPhase = 0.0;
-}
 
-// Voices may load asynchronously - update global voices when they load
-if (speechSynthesis.onvoiceschanged !== undefined) {
-    speechSynthesis.onvoiceschanged = () => {
+    // Voices may load asynchronously - update global voices when they load
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = () => {
         if (typeof availableVoices !== 'undefined') {
-            availableVoices = speechSynthesis.getVoices();
-            if (typeof voicesLoaded !== 'undefined') {
-                voicesLoaded = true;
-            }
+          availableVoices = speechSynthesis.getVoices();
+          if (typeof voicesLoaded !== 'undefined') {
+            voicesLoaded = true;
+          }
         }
-    };
-}
+      };
+    }
 
-// Update speech phase for animation (decay when not speaking)
-function updateSpeechPhase() {
-    if (isSpeaking) {
+    // Update speech phase for animation (decay when not speaking)
+    function updateSpeechPhase() {
+      if (isSpeaking) {
         // Maintain phase while speaking
         const elapsed = Date.now() - speechStartTime;
         // Create a pulsing effect during speech
         speechPhase = 0.7 + 0.3 * Math.sin(elapsed / 100.0);
-    } else {
+      } else {
         // Decay phase when not speaking
         speechPhase *= 0.95;
-    }
-    requestAnimationFrame(updateSpeechPhase);
-}
-
-// Start updating speech phase
-updateSpeechPhase();
-
-</script>
-<script>
-const canvas = document.querySelector("canvas");
-
-// Initialize audio context (lazy initialization on first user interaction)
-let audioCtx = null;
-let isPlaying = false;
-let audioStarted = false; // Track if audio has started
-let audioStartTime = 0; // Timestamp when audio started
-let beatTime = 0; // Current beat time (0-1, cycles with beat)
-let beatPhase = 0; // Beat phase for animation
-let lastBeatTime = 0;
-
-// Create kick drum sound
-function createKick(time) {
-  const osc = audioCtx.createOscillator();
-  const gainNode = audioCtx.createGain();
-  
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(60, time);
-  osc.frequency.exponentialRampToValueAtTime(30, time + 0.1);
-  
-  gainNode.gain.setValueAtTime(0.5, time);
-  gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
-  
-  osc.connect(gainNode);
-  gainNode.connect(audioCtx.destination);
-  
-  osc.start(time);
-  osc.stop(time + 0.2);
-}
-
-// Create snare drum sound
-function createSnare(time) {
-  const noise = audioCtx.createBufferSource();
-  const noiseBuffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.2, audioCtx.sampleRate);
-  const output = noiseBuffer.getChannelData(0);
-  
-  for (let i = 0; i < audioCtx.sampleRate * 0.2; i++) {
-    output[i] = Math.random() * 2 - 1;
-  }
-  
-  noise.buffer = noiseBuffer;
-  
-  const noiseFilter = audioCtx.createBiquadFilter();
-  noiseFilter.type = "highpass";
-  noiseFilter.frequency.value = 1000;
-  
-  const gainNode = audioCtx.createGain();
-  gainNode.gain.setValueAtTime(0.3, time);
-  gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
-  
-  noise.connect(noiseFilter);
-  noiseFilter.connect(gainNode);
-  gainNode.connect(audioCtx.destination);
-  
-  // Add a tone to the snare
-  const osc = audioCtx.createOscillator();
-  const oscGain = audioCtx.createGain();
-  osc.type = "triangle";
-  osc.frequency.value = 200;
-  oscGain.gain.setValueAtTime(0.1, time);
-  oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
-  osc.connect(oscGain);
-  oscGain.connect(audioCtx.destination);
-  
-  noise.start(time);
-  noise.stop(time + 0.2);
-  osc.start(time);
-  osc.stop(time + 0.1);
-}
-
-// Create hi-hat sound
-function createHiHat(time) {
-  const gainNode = audioCtx.createGain();
-  const fundamental = 200;
-  const ratios = [2, 3, 4.16, 5.43, 6.79, 8.21];
-  
-  ratios.forEach((ratio, i) => {
-    const osc = audioCtx.createOscillator();
-    osc.type = "square";
-    osc.frequency.value = fundamental * ratio;
-    
-    const bandpass = audioCtx.createBiquadFilter();
-    bandpass.type = "bandpass";
-    bandpass.frequency.value = 10000;
-    bandpass.Q.value = 0.5;
-    
-    const env = audioCtx.createGain();
-    env.gain.setValueAtTime(0.1 / (i + 1), time);
-    env.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
-    
-    osc.connect(bandpass);
-    bandpass.connect(env);
-    env.connect(audioCtx.destination);
-    
-    osc.start(time);
-    osc.stop(time + 0.05);
-  });
-}
-
-// Create bass line
-function createBass(time, note) {
-  const osc = audioCtx.createOscillator();
-  const gainNode = audioCtx.createGain();
-  
-  osc.type = "sawtooth";
-  osc.frequency.value = note;
-  
-  gainNode.gain.setValueAtTime(0.2, time);
-  gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
-  
-  osc.connect(gainNode);
-  gainNode.connect(audioCtx.destination);
-  
-  osc.start(time);
-  osc.stop(time + 0.3);
-}
-
-// Play rap beat pattern (loops forever)
-function playBeat() {
-  if (!audioCtx) return;
-  
-  const startTime = audioCtx.currentTime;
-  const bpm = 90;
-  const beatDuration = 60 / bpm;
-  
-  // Reset beat timing
-  lastBeatTime = startTime;
-  beatTime = 0;
-  
-  // Rap beat pattern (16 beats = 4 bars)
-  const pattern = [
-    // Bar 1
-    { time: 0, kick: true, snare: false, hihat: true, bass: 0 },
-    { time: 0.5, kick: false, snare: false, hihat: true, bass: 0 },
-    { time: 1.0, kick: true, snare: false, hihat: true, bass: 55 }, // A1
-    { time: 1.5, kick: false, snare: false, hihat: true, bass: 0 },
-    { time: 2.0, kick: false, snare: true, hihat: true, bass: 0 },
-    { time: 2.5, kick: false, snare: false, hihat: true, bass: 0 },
-    { time: 3.0, kick: true, snare: false, hihat: true, bass: 55 },
-    { time: 3.5, kick: false, snare: false, hihat: true, bass: 0 },
-    // Bar 2
-    { time: 4.0, kick: true, snare: false, hihat: true, bass: 0 },
-    { time: 4.5, kick: false, snare: false, hihat: true, bass: 0 },
-    { time: 5.0, kick: true, snare: false, hihat: true, bass: 62 }, // D2
-    { time: 5.5, kick: false, snare: false, hihat: true, bass: 0 },
-    { time: 6.0, kick: false, snare: true, hihat: true, bass: 0 },
-    { time: 6.5, kick: false, snare: false, hihat: true, bass: 0 },
-    { time: 7.0, kick: true, snare: false, hihat: true, bass: 55 },
-    { time: 7.5, kick: false, snare: false, hihat: true, bass: 0 },
-  ];
-  
-  pattern.forEach((beat) => {
-    const time = startTime + beat.time * beatDuration;
-    if (beat.kick) {
-      createKick(time);
-      // Trigger beat event for animation
-      setTimeout(() => {
-        beatPhase = 1.0; // Pulse on kick
-      }, (time - startTime) * 1000);
-    }
-    if (beat.snare) {
-      createSnare(time);
-      // Trigger snare event
-      setTimeout(() => {
-        beatPhase = 0.7; // Smaller pulse on snare
-      }, (time - startTime) * 1000);
-    }
-    if (beat.hihat) createHiHat(time);
-    if (beat.bass > 0) createBass(time, beat.bass);
-  });
-  
-  // Schedule next loop before current one finishes
-  const totalDuration = 8 * beatDuration;
-  setTimeout(() => {
-    if (audioCtx && isPlaying) {
-      playBeat(); // Loop forever
-    }
-  }, totalDuration * 1000 - 50); // Start next loop 50ms before current ends
-  
-  // Update beat time continuously during playback (loops forever)
-  const updateBeatTime = () => {
-    if (!audioCtx || !isPlaying) return;
-    const currentAudioTime = audioCtx.currentTime;
-    const elapsed = currentAudioTime - startTime;
-    
-    // Calculate beat time (loops every beat)
-    beatTime = ((elapsed % totalDuration) % beatDuration) / beatDuration; // 0-1 cycle per beat
-    
-    requestAnimationFrame(updateBeatTime);
-  };
-  updateBeatTime();
-}
-
-// Setup audio button and autoplay - wait for DOM to be ready
-document.addEventListener('DOMContentLoaded', () => {
-  const playButton = document.getElementById("play");
-  
-  // Function to initialize and start audio
-  const startAudio = async () => {
-    try {
-      // Initialize audio context (required by browsers)
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       }
-      
-      // Resume audio context if suspended (required after user interaction)
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
+      requestAnimationFrame(updateSpeechPhase);
+    }
+
+    // Start updating speech phase
+    updateSpeechPhase();
+
+  </script>
+  <script>
+    const canvas = document.querySelector("canvas");
+
+    // Initialize audio context (lazy initialization on first user interaction)
+    let audioCtx = null;
+    let isPlaying = false;
+    let audioStarted = false; // Track if audio has started
+    let audioStartTime = 0; // Timestamp when audio started
+    let beatTime = 0; // Current beat time (0-1, cycles with beat)
+    let beatPhase = 0; // Beat phase for animation
+    let lastBeatTime = 0;
+
+    let beatCount = 0; // Total beats passed
+
+    // Create kick drum sound
+    function createKick(time) {
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(60, time);
+      osc.frequency.exponentialRampToValueAtTime(30, time + 0.1);
+
+      gainNode.gain.setValueAtTime(0.5, time);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      osc.start(time);
+      osc.stop(time + 0.2);
+    }
+
+    // Create snare drum sound
+    function createSnare(time) {
+      const noise = audioCtx.createBufferSource();
+      const noiseBuffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.2, audioCtx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+
+      for (let i = 0; i < audioCtx.sampleRate * 0.2; i++) {
+        output[i] = Math.random() * 2 - 1;
       }
-      
-      // Start playing beat loop
-      if (!isPlaying) {
-        isPlaying = true;
-        audioStarted = true; // Mark audio as started
-        audioStartTime = Date.now(); // Record start time for transition
-        playBeat();
-        // Start speech interval when audio starts
-        if (typeof startSpeechInterval === 'function') {
-          startSpeechInterval();
+
+      noise.buffer = noiseBuffer;
+
+      const noiseFilter = audioCtx.createBiquadFilter();
+      noiseFilter.type = "highpass";
+      noiseFilter.frequency.value = 1000;
+
+      const gainNode = audioCtx.createGain();
+      gainNode.gain.setValueAtTime(0.3, time);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+
+      noise.connect(noiseFilter);
+      noiseFilter.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      // Add a tone to the snare
+      const osc = audioCtx.createOscillator();
+      const oscGain = audioCtx.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = 200;
+      oscGain.gain.setValueAtTime(0.1, time);
+      oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+      osc.connect(oscGain);
+      oscGain.connect(audioCtx.destination);
+
+      noise.start(time);
+      noise.stop(time + 0.2);
+      osc.start(time);
+      osc.stop(time + 0.1);
+    }
+
+    // Create hi-hat sound
+    function createHiHat(time) {
+      const gainNode = audioCtx.createGain();
+      const fundamental = 200;
+      const ratios = [2, 3, 4.16, 5.43, 6.79, 8.21];
+
+      ratios.forEach((ratio, i) => {
+        const osc = audioCtx.createOscillator();
+        osc.type = "square";
+        osc.frequency.value = fundamental * ratio;
+
+        const bandpass = audioCtx.createBiquadFilter();
+        bandpass.type = "bandpass";
+        bandpass.frequency.value = 10000;
+        bandpass.Q.value = 0.5;
+
+        const env = audioCtx.createGain();
+        env.gain.setValueAtTime(0.1 / (i + 1), time);
+        env.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+
+        osc.connect(bandpass);
+        bandpass.connect(env);
+        env.connect(audioCtx.destination);
+
+        osc.start(time);
+        osc.stop(time + 0.05);
+      });
+    }
+
+    // Create bass line
+    function createBass(time, note) {
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      osc.type = "sawtooth";
+      osc.frequency.value = note;
+
+      gainNode.gain.setValueAtTime(0.2, time);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
+
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      osc.start(time);
+      osc.stop(time + 0.3);
+    }
+
+    // Play full track with structure
+    let loopCount = 0;
+
+    function playBeat() {
+      if (!audioCtx) return;
+
+      const startTime = audioCtx.currentTime;
+      const bpm = 90;
+      const beatDuration = 60 / bpm; // Duration of a quarter note
+
+      // Reset beat timing for visualization
+      lastBeatTime = startTime;
+      beatTime = 0;
+
+      // Define patterns for different sections
+      // Each pattern is 2 bars (8 beats)
+
+      // 1. Intro / Breakdown: Sparse, just hi-hats and deep bass
+      const patternIntro = [
+        { time: 0, kick: true, snare: false, hihat: true, bass: 55 },
+        { time: 1.0, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 2.0, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 3.0, kick: false, snare: false, hihat: true, bass: 55 },
+        { time: 4.0, kick: true, snare: false, hihat: true, bass: 0 },
+        { time: 5.0, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 6.0, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 7.0, kick: false, snare: false, hihat: true, bass: 55 },
+      ];
+
+      // 2. Main Beat: Full kick, snare, hi-hats, bass
+      const patternMain = [
+        // Bar 1
+        { time: 0, kick: true, snare: false, hihat: true, bass: 55 },
+        { time: 0.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 1.0, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 1.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 2.0, kick: false, snare: true, hihat: true, bass: 0 },
+        { time: 2.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 3.0, kick: true, snare: false, hihat: true, bass: 55 },
+        { time: 3.5, kick: false, snare: false, hihat: true, bass: 0 },
+        // Bar 2
+        { time: 4.0, kick: true, snare: false, hihat: true, bass: 0 },
+        { time: 4.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 5.0, kick: false, snare: false, hihat: true, bass: 60 }, // Note change
+        { time: 5.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 6.0, kick: false, snare: true, hihat: true, bass: 0 },
+        { time: 6.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 7.0, kick: true, snare: false, hihat: true, bass: 55 },
+        { time: 7.5, kick: false, snare: false, hihat: true, bass: 0 },
+      ];
+
+      // 3. Hype / Variation: Faster hi-hats, more kicks
+      const patternHype = [
+        // Bar 1
+        { time: 0, kick: true, snare: false, hihat: true, bass: 55 },
+        { time: 0.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 0.75, kick: false, snare: false, hihat: true, bass: 0 }, // 16th note hat
+        { time: 1.0, kick: true, snare: false, hihat: true, bass: 0 },
+        { time: 1.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 2.0, kick: false, snare: true, hihat: true, bass: 0 },
+        { time: 2.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 2.75, kick: false, snare: false, hihat: true, bass: 0 }, // 16th note hat
+        { time: 3.0, kick: true, snare: false, hihat: true, bass: 55 },
+        { time: 3.5, kick: false, snare: false, hihat: true, bass: 0 },
+        // Bar 2
+        { time: 4.0, kick: true, snare: false, hihat: true, bass: 0 },
+        { time: 4.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 5.0, kick: true, snare: false, hihat: true, bass: 62 }, // Higher note
+        { time: 5.25, kick: true, snare: false, hihat: true, bass: 0 }, // Double kick
+        { time: 5.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 6.0, kick: false, snare: true, hihat: true, bass: 0 },
+        { time: 6.5, kick: false, snare: false, hihat: true, bass: 0 },
+        { time: 7.0, kick: true, snare: false, hihat: true, bass: 55 },
+        { time: 7.5, kick: false, snare: false, hihat: true, bass: 0 },
+      ];
+
+      // Song Structure Sequencer
+      let currentPattern = [];
+
+      // Cycle: Intro (2 loops) -> Main (4 loops) -> Hype (2 loops) -> Breakdown (2 loops) -> Repeat
+      const section = loopCount % 10;
+
+      if (section < 2) {
+        currentPattern = patternIntro;
+        console.log("Section: Intro");
+      } else if (section < 6) {
+        currentPattern = patternMain;
+        console.log("Section: Main");
+      } else if (section < 8) {
+        currentPattern = patternHype;
+        console.log("Section: Hype");
+      } else {
+        currentPattern = patternIntro; // Breakdown
+        console.log("Section: Breakdown");
+      }
+
+      // Schedule the notes
+      currentPattern.forEach((beat) => {
+        const time = startTime + beat.time * beatDuration;
+        if (beat.kick) {
+          createKick(time);
+          setTimeout(() => {
+            beatPhase = 1.0;
+            beatCount++; // Change shape on kick
+          }, (time - startTime) * 1000);
         }
-        // Hide the button after starting
-        playButton.classList.add('hidden');
-      }
-    } catch (e) {
-      console.log('Audio start failed, waiting for user interaction:', e);
-      return false;
+        if (beat.snare) {
+          createSnare(time);
+          setTimeout(() => {
+            beatPhase = 0.7;
+            // Optional: Change shape on snare too? Let's stick to kick for now or just every beat
+            // beatCount++; 
+          }, (time - startTime) * 1000);
+        }
+        if (beat.hihat) createHiHat(time);
+        if (beat.bass > 0) createBass(time, beat.bass);
+      });
+
+      // Increment loop counter
+      loopCount++;
+
+      // Schedule next loop
+      const totalDuration = 8 * beatDuration; // 2 bars
+      setTimeout(() => {
+        if (audioCtx && isPlaying) {
+          playBeat();
+        }
+      }, totalDuration * 1000 - 50);
+
+      // Update beat time continuously
+      const updateBeatTime = () => {
+        if (!audioCtx || !isPlaying) return;
+        const currentAudioTime = audioCtx.currentTime;
+        const elapsed = currentAudioTime - startTime;
+        beatTime = ((elapsed % totalDuration) % beatDuration) / beatDuration;
+        requestAnimationFrame(updateBeatTime);
+      };
+      updateBeatTime();
     }
-    return true;
-  };
-  
-  // Setup button handlers for both desktop and mobile
-  if (playButton) {
-    let touchHandled = false;
-    
-    // Handle touch events for mobile
-    playButton.addEventListener("touchstart", (e) => {
-      touchHandled = false;
-    }, { passive: true });
-    
-    playButton.addEventListener("touchend", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      touchHandled = true;
-      startAudio();
-    });
-    
-    // Handle click for desktop (but prevent if touch was used to avoid double-firing)
-    playButton.addEventListener("click", (e) => {
-      if (!touchHandled) {
-        startAudio();
+
+    // Setup audio button and autoplay - wait for DOM to be ready
+    document.addEventListener('DOMContentLoaded', () => {
+      const playButton = document.getElementById("play");
+
+      // Function to initialize and start audio
+      const startAudio = async () => {
+        try {
+          // Initialize audio context (required by browsers)
+          if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          }
+
+          // Resume audio context if suspended (required after user interaction)
+          if (audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+          }
+
+          // Start playing beat loop
+          if (!isPlaying) {
+            isPlaying = true;
+            audioStarted = true; // Mark audio as started
+            audioStartTime = Date.now(); // Record start time for transition
+            playBeat();
+            // Start speech interval when audio starts
+            if (typeof startSpeechInterval === 'function') {
+              startSpeechInterval();
+            }
+            // Hide the button after starting
+            playButton.classList.add('hidden');
+          }
+        } catch (e) {
+          console.log('Audio start failed, waiting for user interaction:', e);
+          return false;
+        }
+        return true;
+      };
+
+      // Setup button handlers for both desktop and mobile
+      if (playButton) {
+        let touchHandled = false;
+
+        // Handle touch events for mobile
+        playButton.addEventListener("touchstart", (e) => {
+          touchHandled = false;
+        }, { passive: true });
+
+        playButton.addEventListener("touchend", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          touchHandled = true;
+          startAudio();
+        });
+
+        // Handle click for desktop (but prevent if touch was used to avoid double-firing)
+        playButton.addEventListener("click", (e) => {
+          if (!touchHandled) {
+            startAudio();
+          }
+          touchHandled = false;
+        });
       }
-      touchHandled = false;
+
+      // Function to enable autoplay on user interaction
+      const enableAutoplay = async () => {
+        const success = await startAudio();
+        if (success) {
+          // Remove listeners after successful start
+          document.removeEventListener('click', enableAutoplay);
+          document.removeEventListener('touchstart', enableAutoplay);
+          document.removeEventListener('keydown', enableAutoplay);
+          document.removeEventListener('mousedown', enableAutoplay);
+        }
+      };
+
+      // Try to autoplay immediately on load (will likely fail due to browser policy)
+      startAudio().catch(() => {
+        // If autoplay fails, wait for user interaction
+        // Listen for any user interaction to start audio
+        document.addEventListener('click', enableAutoplay, { once: true });
+        document.addEventListener('touchstart', enableAutoplay, { once: true });
+        document.addEventListener('keydown', enableAutoplay, { once: true });
+        document.addEventListener('mousedown', enableAutoplay, { once: true });
+      });
     });
-  }
-  
-  // Function to enable autoplay on user interaction
-  const enableAutoplay = async () => {
-    const success = await startAudio();
-    if (success) {
-      // Remove listeners after successful start
-      document.removeEventListener('click', enableAutoplay);
-      document.removeEventListener('touchstart', enableAutoplay);
-      document.removeEventListener('keydown', enableAutoplay);
-      document.removeEventListener('mousedown', enableAutoplay);
+
+    const gl = getRenderingContext();
+    let source = document.querySelector("#vertex-shader").innerHTML;
+    const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vertexShader, source);
+    gl.compileShader(vertexShader);
+
+    source = document.querySelector("#fragment-shader").innerHTML;
+    const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fragmentShader, source);
+    gl.compileShader(fragmentShader);
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    gl.detachShader(program, vertexShader);
+    gl.detachShader(program, fragmentShader);
+    gl.deleteShader(vertexShader);
+    gl.deleteShader(fragmentShader);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      const linkErrLog = gl.getProgramInfoLog(program);
+      cleanup();
+      document.querySelector("p").textContent =
+        `Shader program did not link successfully. Error log: ${linkErrLog}`;
+      throw new Error("Program failed to link");
     }
-  };
-  
-  // Try to autoplay immediately on load (will likely fail due to browser policy)
-  startAudio().catch(() => {
-    // If autoplay fails, wait for user interaction
-    // Listen for any user interaction to start audio
-    document.addEventListener('click', enableAutoplay, { once: true });
-    document.addEventListener('touchstart', enableAutoplay, { once: true });
-    document.addEventListener('keydown', enableAutoplay, { once: true });
-    document.addEventListener('mousedown', enableAutoplay, { once: true });
-  });
-});
 
-const gl = getRenderingContext();
-let source = document.querySelector("#vertex-shader").innerHTML;
-const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-gl.shaderSource(vertexShader, source);
-gl.compileShader(vertexShader);
+    let buffer;
+    initializeAttributes();
 
-source = document.querySelector("#fragment-shader").innerHTML;
-const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-gl.shaderSource(fragmentShader, source);
-gl.compileShader(fragmentShader);
-const program = gl.createProgram();
-gl.attachShader(program, vertexShader);
-gl.attachShader(program, fragmentShader);
-gl.linkProgram(program);
-gl.detachShader(program, vertexShader);
-gl.detachShader(program, fragmentShader);
-gl.deleteShader(vertexShader);
-gl.deleteShader(fragmentShader);
-if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-  const linkErrLog = gl.getProgramInfoLog(program);
-  cleanup();
-  document.querySelector("p").textContent =
-    `Shader program did not link successfully. Error log: ${linkErrLog}`;
-  throw new Error("Program failed to link");
-}
+    // Get uniform locations
+    const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
+    const timeLocation = gl.getUniformLocation(program, "u_time");
+    const beatTimeLocation = gl.getUniformLocation(program, "u_beatTime");
+    const beatPhaseLocation = gl.getUniformLocation(program, "u_beatPhase");
+    const audioStartedLocation = gl.getUniformLocation(program, "u_audioStarted");
+    const transitionProgressLocation = gl.getUniformLocation(program, "u_transitionProgress");
+    const speechPhaseLocation = gl.getUniformLocation(program, "u_speechPhase");
+    const isSpeakingLocation = gl.getUniformLocation(program, "u_isSpeaking");
+    const beatCountLocation = gl.getUniformLocation(program, "u_beatCount");
 
-let buffer;
-initializeAttributes();
+    // Animation start time
+    let startTime = Date.now();
 
-// Get uniform locations
-const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
-const timeLocation = gl.getUniformLocation(program, "u_time");
-const beatTimeLocation = gl.getUniformLocation(program, "u_beatTime");
-const beatPhaseLocation = gl.getUniformLocation(program, "u_beatPhase");
-const audioStartedLocation = gl.getUniformLocation(program, "u_audioStarted");
-const transitionProgressLocation = gl.getUniformLocation(program, "u_transitionProgress");
-const speechPhaseLocation = gl.getUniformLocation(program, "u_speechPhase");
-const isSpeakingLocation = gl.getUniformLocation(program, "u_isSpeaking");
+    // Enable blending for additive effect
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 
-// Animation start time
-let startTime = Date.now();
+    function render() {
+      // Update viewport if canvas size changed
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        gl.viewport(0, 0, width, height);
+      }
 
-// Enable blending for additive effect
-gl.enable(gl.BLEND);
-gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      // Calculate time in seconds
+      const currentTime = (Date.now() - startTime) / 1000.0;
 
-function render() {
-  // Update viewport if canvas size changed
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-    gl.viewport(0, 0, width, height);
-  }
-  
-  // Calculate time in seconds
-  const currentTime = (Date.now() - startTime) / 1000.0;
-  
-  // Decay beat phase over time
-  beatPhase *= 0.92; // Fade out beat pulse
-  
-  // Calculate transition progress (0.0 to 1.0 over 3 seconds)
-  let transitionProgress = 0.0;
-  if (audioStarted && audioStartTime > 0) {
-    const transitionDuration = 3000; // 3 seconds
-    const elapsed = Date.now() - audioStartTime;
-    transitionProgress = Math.min(1.0, elapsed / transitionDuration);
-    // Smooth easing function (ease-out cubic)
-    transitionProgress = 1.0 - Math.pow(1.0 - transitionProgress, 3.0);
-  }
-  
-  // Clear and draw
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.useProgram(program);
-  
-  // Set uniforms
-  gl.uniform2f(resolutionLocation, width, height);
-  gl.uniform1f(timeLocation, audioStarted ? currentTime : 0.0); // Freeze time if audio hasn't started
-  gl.uniform1f(beatTimeLocation, beatTime);
-  gl.uniform1f(beatPhaseLocation, beatPhase);
-  gl.uniform1i(audioStartedLocation, audioStarted ? 1 : 0);
-  gl.uniform1f(transitionProgressLocation, transitionProgress);
-  gl.uniform1f(speechPhaseLocation, typeof speechPhase !== 'undefined' ? speechPhase : 0.0);
-  gl.uniform1i(isSpeakingLocation, typeof isSpeaking !== 'undefined' && isSpeaking ? 1 : 0);
-  
-  // Draw full-screen quad (2 triangles = 6 vertices)
-  gl.drawArrays(gl.TRIANGLES, 0, 6);
-  
-  requestAnimationFrame(render);
-}
+      // Decay beat phase over time
+      beatPhase *= 0.92; // Fade out beat pulse
 
-render();
+      // Calculate transition progress (0.0 to 1.0 over 3 seconds)
+      let transitionProgress = 0.0;
+      if (audioStarted && audioStartTime > 0) {
+        const transitionDuration = 3000; // 3 seconds
+        const elapsed = Date.now() - audioStartTime;
+        transitionProgress = Math.min(1.0, elapsed / transitionDuration);
+        // Smooth easing function (ease-out cubic)
+        transitionProgress = 1.0 - Math.pow(1.0 - transitionProgress, 3.0);
+      }
 
-function getRenderingContext() {
-  canvas.width = canvas.clientWidth;
-  canvas.height = canvas.clientHeight;
-  const gl = canvas.getContext("webgl");
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-  gl.clearColor(0.0, 0.0, 0.0, 1.0);
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  return gl;
-}
+      // Clear and draw
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(program);
 
-function initializeAttributes() {
-  // Define full-screen quad as two triangles (covering -1 to 1 in both dimensions)
-  const quadVertices = new Float32Array([
-    // First triangle
-    -1.0, -1.0,
-     1.0, -1.0,
-    -1.0,  1.0,
-    // Second triangle
-    -1.0,  1.0,
-     1.0, -1.0,
-     1.0,  1.0
-  ]);
-  
-  // Get the attribute location
-  const positionLocation = gl.getAttribLocation(program, "a_position");
-  
-  // Create and bind buffer
-  buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
-  
-  // Enable and set up the attribute
-  gl.enableVertexAttribArray(positionLocation);
-  gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-}
+      // Set uniforms
+      gl.uniform2f(resolutionLocation, width, height);
+      gl.uniform1f(timeLocation, audioStarted ? currentTime : 0.0); // Freeze time if audio hasn't started
+      gl.uniform1f(beatTimeLocation, beatTime);
+      gl.uniform1f(beatPhaseLocation, beatPhase);
+      gl.uniform1i(audioStartedLocation, audioStarted ? 1 : 0);
+      gl.uniform1f(transitionProgressLocation, transitionProgress);
+      gl.uniform1f(speechPhaseLocation, typeof speechPhase !== 'undefined' ? speechPhase : 0.0);
+      gl.uniform1i(isSpeakingLocation, typeof isSpeaking !== 'undefined' && isSpeaking ? 1 : 0);
+      gl.uniform1i(beatCountLocation, beatCount);
 
-function cleanup() {
-  gl.useProgram(null);
-  if (buffer) {
-    gl.deleteBuffer(buffer);
-  }
-  if (program) {
-    gl.deleteProgram(program);
-  }
-}
+      // Draw full-screen quad (2 triangles = 6 vertices)
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-</script>
+      requestAnimationFrame(render);
+    }
+
+    render();
+
+    function getRenderingContext() {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+      const gl = canvas.getContext("webgl");
+      gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+      gl.clearColor(0.0, 0.0, 0.0, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      return gl;
+    }
+
+    function initializeAttributes() {
+      // Define full-screen quad as two triangles (covering -1 to 1 in both dimensions)
+      const quadVertices = new Float32Array([
+        // First triangle
+        -1.0, -1.0,
+        1.0, -1.0,
+        -1.0, 1.0,
+        // Second triangle
+        -1.0, 1.0,
+        1.0, -1.0,
+        1.0, 1.0
+      ]);
+
+      // Get the attribute location
+      const positionLocation = gl.getAttribLocation(program, "a_position");
+
+      // Create and bind buffer
+      buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
+
+      // Enable and set up the attribute
+      gl.enableVertexAttribArray(positionLocation);
+      gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    function cleanup() {
+      gl.useProgram(null);
+      if (buffer) {
+        gl.deleteBuffer(buffer);
+      }
+      if (program) {
+        gl.deleteProgram(program);
+      }
+    }
+
+  </script>
 </body>
+
 </html>
