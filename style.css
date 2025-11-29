@@ -178,3 +178,42 @@ p {
   display: none;
 }
 
+/* Select dropdown styling */
+.control-group select {
+  width: 100%;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: white;
+  font-size: 14px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  cursor: pointer;
+  outline: none;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.control-group select:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.control-group select:focus {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: #4CAF50;
+}
+
+.control-group select option {
+  background: rgba(20, 20, 20, 0.95);
+  color: white;
+}
+
+/* Checkbox styling */
+.control-group input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin-right: 10px;
+  cursor: pointer;
+  accent-color: #4CAF50;
+}
+
