@@ -14,10 +14,46 @@
 
         canvas {
             filter: contrast(1.1) brightness(1.0);
+            z-index: 1 !important;
+            position: relative !important;
+        }
+
+        /* Toggle button */
+        #toggleControls {
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            z-index: 99999 !important;
+            background: rgba(76, 175, 80, 0.9) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 50% !important;
+            width: 56px !important;
+            height: 56px !important;
+            font-size: 24px !important;
+            cursor: pointer !important;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3) !important;
+            transition: all 0.3s ease !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        #toggleControls:hover {
+            background: rgba(76, 175, 80, 1) !important;
+            transform: scale(1.1) !important;
+        }
+
+        .controls-panel.hidden {
+            transform: translateX(100%) !important;
         }
 
         /* Custom overrides for the dark theme controls */
         .controls-panel {
+            transition: transform 0.3s ease !important;
             background: rgba(0, 0, 0, 0.8);
             border: 1px solid #333;
             color: #ccc;
@@ -141,6 +177,7 @@
 
         <button id="resetBtn" class="reset-btn">Reset to Default</button>
     </div>
+    <button id="toggleControls" title="Toggle Controls">⚙️</button>
 
     <script type="x-shader/x-vertex" id="vertex-shader">
   attribute vec2 a_position;
@@ -515,6 +552,29 @@
         }
 
         setupControls();
+
+        // Toggle controls visibility
+        const toggleBtn = document.getElementById('toggleControls');
+        const controlsPanel = document.getElementById('controls');
+        if (toggleBtn && controlsPanel) {
+            // Ensure button is visible
+            toggleBtn.style.display = 'block';
+            toggleBtn.style.visibility = 'visible';
+            toggleBtn.style.opacity = '1';
+            toggleBtn.style.pointerEvents = 'auto';
+            
+            let controlsVisible = true;
+            toggleBtn.addEventListener('click', () => {
+                controlsVisible = !controlsVisible;
+                if (controlsVisible) {
+                    controlsPanel.classList.remove('hidden');
+                    toggleBtn.textContent = '⚙️';
+                } else {
+                    controlsPanel.classList.add('hidden');
+                    toggleBtn.textContent = '👁️';
+                }
+            });
+        }
 
         let startTime = Date.now();
 

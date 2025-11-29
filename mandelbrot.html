@@ -1,91 +1,138 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello World! Hello GLSL!</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hello World! Hello GLSL!</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Ensure canvas doesn't block the button */
+    canvas {
+      z-index: 1 !important;
+      position: relative !important;
+    }
+    
+    /* Toggle button */
+    #toggleControls2 {
+      position: fixed !important;
+      bottom: 20px !important;
+      right: 20px !important;
+      z-index: 99999 !important;
+      background: rgba(76, 175, 80, 0.9) !important;
+      color: white !important;
+      border: none !important;
+      border-radius: 50% !important;
+      width: 56px !important;
+      height: 56px !important;
+      font-size: 24px !important;
+      cursor: pointer !important;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3) !important;
+      transition: all 0.3s ease !important;
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      pointer-events: auto !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    #toggleControls2:hover {
+      background: rgba(76, 175, 80, 1) !important;
+      transform: scale(1.1) !important;
+    }
+
+    .controls-panel.hidden {
+      transform: translateX(100%) !important;
+    }
+
+    .controls-panel {
+      transition: transform 0.3s ease !important;
+    }
+  </style>
 
 </head>
+
 <body>
-<p>Hello World! Hello GLSL!</p>
-<canvas>Your browser does not seem to support HTML canvas.</canvas>
-<div id="controls" class="controls-panel">
-  <h3>Fractal Controls</h3>
-  <div class="control-group">
-    <label for="centerX">Center X:</label>
-    <input type="range" id="centerX" min="-2" max="1" step="0.001" value="-0.5">
-    <span class="value-display" id="centerXValue">-0.5</span>
+  <p>Hello World! Hello GLSL!</p>
+  <canvas>Your browser does not seem to support HTML canvas.</canvas>
+  <div id="controls" class="controls-panel">
+    <h3>Fractal Controls</h3>
+    <div class="control-group">
+      <label for="centerX">Center X:</label>
+      <input type="range" id="centerX" min="-2" max="1" step="0.001" value="-0.5">
+      <span class="value-display" id="centerXValue">-0.5</span>
+    </div>
+    <div class="control-group">
+      <label for="centerY">Center Y:</label>
+      <input type="range" id="centerY" min="-1.5" max="1.5" step="0.001" value="0.0">
+      <span class="value-display" id="centerYValue">0.0</span>
+    </div>
+    <div class="control-group">
+      <label for="zoom">Zoom:</label>
+      <input type="range" id="zoom" min="0.1" max="1000" step="0.1" value="1.0">
+      <span class="value-display" id="zoomValue">1.0</span>
+    </div>
+    <div class="control-group">
+      <label for="maxIterations">Max Iterations:</label>
+      <input type="range" id="maxIterations" min="10" max="500" step="10" value="100">
+      <span class="value-display" id="maxIterationsValue">100</span>
+    </div>
+    <div class="control-group">
+      <label for="rotation">Rotation:</label>
+      <input type="range" id="rotation" min="0" max="6.28" step="0.01" value="0.0">
+      <span class="value-display" id="rotationValue">0.0</span>
+    </div>
+    <div class="control-group">
+      <label for="escapeRadius">Escape Radius:</label>
+      <input type="range" id="escapeRadius" min="2.0" max="10.0" step="0.1" value="4.0">
+      <span class="value-display" id="escapeRadiusValue">4.0</span>
+    </div>
+    <div class="control-group">
+      <label for="colorOffset">Color Offset:</label>
+      <input type="range" id="colorOffset" min="0" max="6.28" step="0.1" value="0.0">
+      <span class="value-display" id="colorOffsetValue">0.0</span>
+    </div>
+    <div class="control-group">
+      <label for="colorSpeed">Color Speed:</label>
+      <input type="range" id="colorSpeed" min="1" max="50" step="1" value="10">
+      <span class="value-display" id="colorSpeedValue">10</span>
+    </div>
+    <div class="control-group">
+      <label for="colorIntensity">Color Intensity:</label>
+      <input type="range" id="colorIntensity" min="0.1" max="2.0" step="0.1" value="1.0">
+      <span class="value-display" id="colorIntensityValue">1.0</span>
+    </div>
+    <div class="control-group">
+      <label for="juliaMode">Julia Set Mode:</label>
+      <input type="checkbox" id="juliaMode">
+      <span class="value-display" id="juliaModeValue">Off</span>
+    </div>
+    <div class="control-group" id="juliaControls" style="display: none;">
+      <label for="juliaX">Julia C X:</label>
+      <input type="range" id="juliaX" min="-2" max="2" step="0.001" value="-0.7269">
+      <span class="value-display" id="juliaXValue">-0.7269</span>
+    </div>
+    <div class="control-group" id="juliaControls2" style="display: none;">
+      <label for="juliaY">Julia C Y:</label>
+      <input type="range" id="juliaY" min="-2" max="2" step="0.001" value="0.1889">
+      <span class="value-display" id="juliaYValue">0.1889</span>
+    </div>
+    <div class="control-group">
+      <label for="colorPalette">Color Palette:</label>
+      <select id="colorPalette">
+        <option value="0">Rainbow</option>
+        <option value="1">Fire</option>
+        <option value="2">Ocean</option>
+        <option value="3">Forest</option>
+        <option value="4">Sunset</option>
+        <option value="5">Monochrome</option>
+      </select>
+    </div>
+    <button id="resetBtn" class="reset-btn">Reset to Default</button>
   </div>
-  <div class="control-group">
-    <label for="centerY">Center Y:</label>
-    <input type="range" id="centerY" min="-1.5" max="1.5" step="0.001" value="0.0">
-    <span class="value-display" id="centerYValue">0.0</span>
-  </div>
-  <div class="control-group">
-    <label for="zoom">Zoom:</label>
-    <input type="range" id="zoom" min="0.1" max="1000" step="0.1" value="1.0">
-    <span class="value-display" id="zoomValue">1.0</span>
-  </div>
-  <div class="control-group">
-    <label for="maxIterations">Max Iterations:</label>
-    <input type="range" id="maxIterations" min="10" max="500" step="10" value="100">
-    <span class="value-display" id="maxIterationsValue">100</span>
-  </div>
-  <div class="control-group">
-    <label for="rotation">Rotation:</label>
-    <input type="range" id="rotation" min="0" max="6.28" step="0.01" value="0.0">
-    <span class="value-display" id="rotationValue">0.0</span>
-  </div>
-  <div class="control-group">
-    <label for="escapeRadius">Escape Radius:</label>
-    <input type="range" id="escapeRadius" min="2.0" max="10.0" step="0.1" value="4.0">
-    <span class="value-display" id="escapeRadiusValue">4.0</span>
-  </div>
-  <div class="control-group">
-    <label for="colorOffset">Color Offset:</label>
-    <input type="range" id="colorOffset" min="0" max="6.28" step="0.1" value="0.0">
-    <span class="value-display" id="colorOffsetValue">0.0</span>
-  </div>
-  <div class="control-group">
-    <label for="colorSpeed">Color Speed:</label>
-    <input type="range" id="colorSpeed" min="1" max="50" step="1" value="10">
-    <span class="value-display" id="colorSpeedValue">10</span>
-  </div>
-  <div class="control-group">
-    <label for="colorIntensity">Color Intensity:</label>
-    <input type="range" id="colorIntensity" min="0.1" max="2.0" step="0.1" value="1.0">
-    <span class="value-display" id="colorIntensityValue">1.0</span>
-  </div>
-  <div class="control-group">
-    <label for="juliaMode">Julia Set Mode:</label>
-    <input type="checkbox" id="juliaMode">
-    <span class="value-display" id="juliaModeValue">Off</span>
-  </div>
-  <div class="control-group" id="juliaControls" style="display: none;">
-    <label for="juliaX">Julia C X:</label>
-    <input type="range" id="juliaX" min="-2" max="2" step="0.001" value="-0.7269">
-    <span class="value-display" id="juliaXValue">-0.7269</span>
-  </div>
-  <div class="control-group" id="juliaControls2" style="display: none;">
-    <label for="juliaY">Julia C Y:</label>
-    <input type="range" id="juliaY" min="-2" max="2" step="0.001" value="0.1889">
-    <span class="value-display" id="juliaYValue">0.1889</span>
-  </div>
-  <div class="control-group">
-    <label for="colorPalette">Color Palette:</label>
-    <select id="colorPalette">
-      <option value="0">Rainbow</option>
-      <option value="1">Fire</option>
-      <option value="2">Ocean</option>
-      <option value="3">Forest</option>
-      <option value="4">Sunset</option>
-      <option value="5">Monochrome</option>
-    </select>
-  </div>
-  <button id="resetBtn" class="reset-btn">Reset to Default</button>
-</div>
-<script type="x-shader/x-vertex" id="vertex-shader">
+  <button id="toggleControls2" title="Toggle Controls">⚙️</button>
+  <script type="x-shader/x-vertex" id="vertex-shader">
   attribute vec2 a_position;
   varying vec2 v_uv;
   
@@ -94,7 +141,7 @@
     gl_Position = vec4(a_position, 0.0, 1.0);
   }
 </script>
-<script type="x-shader/x-fragment" id="fragment-shader">
+  <script type="x-shader/x-fragment" id="fragment-shader">
   precision mediump float;
   
   uniform vec2 u_resolution;
@@ -223,308 +270,332 @@
     }
   }
 </script>
-<script>
-const canvas = document.querySelector("canvas");
+  <script>
+    const canvas = document.querySelector("canvas");
 
-const gl = getRenderingContext();
-let source = document.querySelector("#vertex-shader").innerHTML;
-const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-gl.shaderSource(vertexShader, source);
-gl.compileShader(vertexShader);
+    const gl = getRenderingContext();
+    let source = document.querySelector("#vertex-shader").innerHTML;
+    const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vertexShader, source);
+    gl.compileShader(vertexShader);
 
-source = document.querySelector("#fragment-shader").innerHTML;
-const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-gl.shaderSource(fragmentShader, source);
-gl.compileShader(fragmentShader);
-const program = gl.createProgram();
-gl.attachShader(program, vertexShader);
-gl.attachShader(program, fragmentShader);
-gl.linkProgram(program);
-gl.detachShader(program, vertexShader);
-gl.detachShader(program, fragmentShader);
-gl.deleteShader(vertexShader);
-gl.deleteShader(fragmentShader);
-if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-  const linkErrLog = gl.getProgramInfoLog(program);
-  cleanup();
-  document.querySelector("p").textContent =
-    `Shader program did not link successfully. Error log: ${linkErrLog}`;
-  throw new Error("Program failed to link");
-}
+    source = document.querySelector("#fragment-shader").innerHTML;
+    const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fragmentShader, source);
+    gl.compileShader(fragmentShader);
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    gl.detachShader(program, vertexShader);
+    gl.detachShader(program, fragmentShader);
+    gl.deleteShader(vertexShader);
+    gl.deleteShader(fragmentShader);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      const linkErrLog = gl.getProgramInfoLog(program);
+      cleanup();
+      document.querySelector("p").textContent =
+        `Shader program did not link successfully. Error log: ${linkErrLog}`;
+      throw new Error("Program failed to link");
+    }
 
-let buffer;
-initializeAttributes();
+    let buffer;
+    initializeAttributes();
 
-// Get uniform locations
-const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
-const centerLocation = gl.getUniformLocation(program, "u_center");
-const zoomLocation = gl.getUniformLocation(program, "u_zoom");
-const maxIterationsLocation = gl.getUniformLocation(program, "u_maxIterations");
-const rotationLocation = gl.getUniformLocation(program, "u_rotation");
-const escapeRadiusLocation = gl.getUniformLocation(program, "u_escapeRadius");
-const colorOffsetLocation = gl.getUniformLocation(program, "u_colorOffset");
-const colorSpeedLocation = gl.getUniformLocation(program, "u_colorSpeed");
-const colorIntensityLocation = gl.getUniformLocation(program, "u_colorIntensity");
-const juliaModeLocation = gl.getUniformLocation(program, "u_juliaMode");
-const juliaCLocation = gl.getUniformLocation(program, "u_juliaC");
-const colorPaletteLocation = gl.getUniformLocation(program, "u_colorPalette");
+    // Get uniform locations
+    const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
+    const centerLocation = gl.getUniformLocation(program, "u_center");
+    const zoomLocation = gl.getUniformLocation(program, "u_zoom");
+    const maxIterationsLocation = gl.getUniformLocation(program, "u_maxIterations");
+    const rotationLocation = gl.getUniformLocation(program, "u_rotation");
+    const escapeRadiusLocation = gl.getUniformLocation(program, "u_escapeRadius");
+    const colorOffsetLocation = gl.getUniformLocation(program, "u_colorOffset");
+    const colorSpeedLocation = gl.getUniformLocation(program, "u_colorSpeed");
+    const colorIntensityLocation = gl.getUniformLocation(program, "u_colorIntensity");
+    const juliaModeLocation = gl.getUniformLocation(program, "u_juliaMode");
+    const juliaCLocation = gl.getUniformLocation(program, "u_juliaC");
+    const colorPaletteLocation = gl.getUniformLocation(program, "u_colorPalette");
 
-// Mandelbrot parameters (mutable for UI controls)
-let center = [-0.5, 0.0]; // Default center of Mandelbrot set
-let zoom = 1.0;
-let maxIterations = 100;
-let rotation = 0.0;
-let escapeRadius = 4.0;
-let colorOffset = 0.0;
-let colorSpeed = 10.0;
-let colorIntensity = 1.0;
-let juliaMode = false;
-let juliaC = [-0.7269, 0.1889];
-let colorPalette = 0;
+    // Mandelbrot parameters (mutable for UI controls)
+    let center = [-0.5, 0.0]; // Default center of Mandelbrot set
+    let zoom = 1.0;
+    let maxIterations = 100;
+    let rotation = 0.0;
+    let escapeRadius = 4.0;
+    let colorOffset = 0.0;
+    let colorSpeed = 10.0;
+    let colorIntensity = 1.0;
+    let juliaMode = false;
+    let juliaC = [-0.7269, 0.1889];
+    let colorPalette = 0;
 
-// Initialize UI controls
-function initializeControls() {
-  const centerXSlider = document.getElementById('centerX');
-  const centerYSlider = document.getElementById('centerY');
-  const zoomSlider = document.getElementById('zoom');
-  const maxIterationsSlider = document.getElementById('maxIterations');
-  const rotationSlider = document.getElementById('rotation');
-  const escapeRadiusSlider = document.getElementById('escapeRadius');
-  const colorOffsetSlider = document.getElementById('colorOffset');
-  const colorSpeedSlider = document.getElementById('colorSpeed');
-  const colorIntensitySlider = document.getElementById('colorIntensity');
-  const juliaModeCheckbox = document.getElementById('juliaMode');
-  const juliaXSlider = document.getElementById('juliaX');
-  const juliaYSlider = document.getElementById('juliaY');
-  const colorPaletteSelect = document.getElementById('colorPalette');
-  const resetBtn = document.getElementById('resetBtn');
-  
-  const centerXValue = document.getElementById('centerXValue');
-  const centerYValue = document.getElementById('centerYValue');
-  const zoomValue = document.getElementById('zoomValue');
-  const maxIterationsValue = document.getElementById('maxIterationsValue');
-  const rotationValue = document.getElementById('rotationValue');
-  const escapeRadiusValue = document.getElementById('escapeRadiusValue');
-  const colorOffsetValue = document.getElementById('colorOffsetValue');
-  const colorSpeedValue = document.getElementById('colorSpeedValue');
-  const colorIntensityValue = document.getElementById('colorIntensityValue');
-  const juliaModeValue = document.getElementById('juliaModeValue');
-  const juliaXValue = document.getElementById('juliaXValue');
-  const juliaYValue = document.getElementById('juliaYValue');
-  
-  const juliaControls = document.getElementById('juliaControls');
-  const juliaControls2 = document.getElementById('juliaControls2');
-  
-  // Update center X
-  centerXSlider.addEventListener('input', (e) => {
-    center[0] = parseFloat(e.target.value);
-    centerXValue.textContent = center[0].toFixed(3);
-  });
-  
-  // Update center Y
-  centerYSlider.addEventListener('input', (e) => {
-    center[1] = parseFloat(e.target.value);
-    centerYValue.textContent = center[1].toFixed(3);
-  });
-  
-  // Update zoom
-  zoomSlider.addEventListener('input', (e) => {
-    zoom = parseFloat(e.target.value);
-    zoomValue.textContent = zoom.toFixed(2);
-  });
-  
-  // Update max iterations
-  maxIterationsSlider.addEventListener('input', (e) => {
-    maxIterations = parseInt(e.target.value);
-    maxIterationsValue.textContent = maxIterations;
-  });
-  
-  // Update rotation
-  rotationSlider.addEventListener('input', (e) => {
-    rotation = parseFloat(e.target.value);
-    rotationValue.textContent = rotation.toFixed(2);
-  });
-  
-  // Update escape radius
-  escapeRadiusSlider.addEventListener('input', (e) => {
-    escapeRadius = parseFloat(e.target.value);
-    escapeRadiusValue.textContent = escapeRadius.toFixed(1);
-  });
-  
-  // Update color offset
-  colorOffsetSlider.addEventListener('input', (e) => {
-    colorOffset = parseFloat(e.target.value);
-    colorOffsetValue.textContent = colorOffset.toFixed(1);
-  });
-  
-  // Update color speed
-  colorSpeedSlider.addEventListener('input', (e) => {
-    colorSpeed = parseFloat(e.target.value);
-    colorSpeedValue.textContent = colorSpeed;
-  });
-  
-  // Update color intensity
-  colorIntensitySlider.addEventListener('input', (e) => {
-    colorIntensity = parseFloat(e.target.value);
-    colorIntensityValue.textContent = colorIntensity.toFixed(1);
-  });
-  
-  // Update Julia mode
-  juliaModeCheckbox.addEventListener('change', (e) => {
-    juliaMode = e.target.checked;
-    juliaModeValue.textContent = juliaMode ? 'On' : 'Off';
-    juliaControls.style.display = juliaMode ? 'block' : 'none';
-    juliaControls2.style.display = juliaMode ? 'block' : 'none';
-  });
-  
-  // Update Julia C X
-  juliaXSlider.addEventListener('input', (e) => {
-    juliaC[0] = parseFloat(e.target.value);
-    juliaXValue.textContent = juliaC[0].toFixed(4);
-  });
-  
-  // Update Julia C Y
-  juliaYSlider.addEventListener('input', (e) => {
-    juliaC[1] = parseFloat(e.target.value);
-    juliaYValue.textContent = juliaC[1].toFixed(4);
-  });
-  
-  // Update color palette
-  colorPaletteSelect.addEventListener('change', (e) => {
-    colorPalette = parseInt(e.target.value);
-  });
-  
-  // Reset button
-  resetBtn.addEventListener('click', () => {
-    center = [-0.5, 0.0];
-    zoom = 1.0;
-    maxIterations = 100;
-    rotation = 0.0;
-    escapeRadius = 4.0;
-    colorOffset = 0.0;
-    colorSpeed = 10.0;
-    colorIntensity = 1.0;
-    juliaMode = false;
-    juliaC = [-0.7269, 0.1889];
-    colorPalette = 0;
-    
-    centerXSlider.value = center[0];
-    centerYSlider.value = center[1];
-    zoomSlider.value = zoom;
-    maxIterationsSlider.value = maxIterations;
-    rotationSlider.value = rotation;
-    escapeRadiusSlider.value = escapeRadius;
-    colorOffsetSlider.value = colorOffset;
-    colorSpeedSlider.value = colorSpeed;
-    colorIntensitySlider.value = colorIntensity;
-    juliaModeCheckbox.checked = juliaMode;
-    juliaXSlider.value = juliaC[0];
-    juliaYSlider.value = juliaC[1];
-    colorPaletteSelect.value = colorPalette;
-    
-    centerXValue.textContent = center[0].toFixed(3);
-    centerYValue.textContent = center[1].toFixed(3);
-    zoomValue.textContent = zoom.toFixed(2);
-    maxIterationsValue.textContent = maxIterations;
-    rotationValue.textContent = rotation.toFixed(2);
-    escapeRadiusValue.textContent = escapeRadius.toFixed(1);
-    colorOffsetValue.textContent = colorOffset.toFixed(1);
-    colorSpeedValue.textContent = colorSpeed;
-    colorIntensityValue.textContent = colorIntensity.toFixed(1);
-    juliaModeValue.textContent = juliaMode ? 'On' : 'Off';
-    juliaXValue.textContent = juliaC[0].toFixed(4);
-    juliaYValue.textContent = juliaC[1].toFixed(4);
-    
-    juliaControls.style.display = juliaMode ? 'block' : 'none';
-    juliaControls2.style.display = juliaMode ? 'block' : 'none';
-  });
-}
+    // Initialize UI controls
+    function initializeControls() {
+      const centerXSlider = document.getElementById('centerX');
+      const centerYSlider = document.getElementById('centerY');
+      const zoomSlider = document.getElementById('zoom');
+      const maxIterationsSlider = document.getElementById('maxIterations');
+      const rotationSlider = document.getElementById('rotation');
+      const escapeRadiusSlider = document.getElementById('escapeRadius');
+      const colorOffsetSlider = document.getElementById('colorOffset');
+      const colorSpeedSlider = document.getElementById('colorSpeed');
+      const colorIntensitySlider = document.getElementById('colorIntensity');
+      const juliaModeCheckbox = document.getElementById('juliaMode');
+      const juliaXSlider = document.getElementById('juliaX');
+      const juliaYSlider = document.getElementById('juliaY');
+      const colorPaletteSelect = document.getElementById('colorPalette');
+      const resetBtn = document.getElementById('resetBtn');
 
-initializeControls();
+      const centerXValue = document.getElementById('centerXValue');
+      const centerYValue = document.getElementById('centerYValue');
+      const zoomValue = document.getElementById('zoomValue');
+      const maxIterationsValue = document.getElementById('maxIterationsValue');
+      const rotationValue = document.getElementById('rotationValue');
+      const escapeRadiusValue = document.getElementById('escapeRadiusValue');
+      const colorOffsetValue = document.getElementById('colorOffsetValue');
+      const colorSpeedValue = document.getElementById('colorSpeedValue');
+      const colorIntensityValue = document.getElementById('colorIntensityValue');
+      const juliaModeValue = document.getElementById('juliaModeValue');
+      const juliaXValue = document.getElementById('juliaXValue');
+      const juliaYValue = document.getElementById('juliaYValue');
 
-function render() {
-  // Update viewport if canvas size changed
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-    gl.viewport(0, 0, width, height);
-  }
-  
-  // Clear and draw
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.useProgram(program);
-  
-  // Set uniforms
-  gl.uniform2f(resolutionLocation, width, height);
-  gl.uniform2f(centerLocation, center[0], center[1]);
-  gl.uniform1f(zoomLocation, zoom);
-  gl.uniform1i(maxIterationsLocation, maxIterations);
-  gl.uniform1f(rotationLocation, rotation);
-  gl.uniform1f(escapeRadiusLocation, escapeRadius);
-  gl.uniform1f(colorOffsetLocation, colorOffset);
-  gl.uniform1f(colorSpeedLocation, colorSpeed);
-  gl.uniform1f(colorIntensityLocation, colorIntensity);
-  gl.uniform1i(juliaModeLocation, juliaMode ? 1 : 0);
-  gl.uniform2f(juliaCLocation, juliaC[0], juliaC[1]);
-  gl.uniform1i(colorPaletteLocation, colorPalette);
-  
-  // Draw full-screen quad (2 triangles = 6 vertices)
-  gl.drawArrays(gl.TRIANGLES, 0, 6);
-  
-  requestAnimationFrame(render);
-}
+      const juliaControls = document.getElementById('juliaControls');
+      const juliaControls2 = document.getElementById('juliaControls2');
 
-render();
+      // Update center X
+      centerXSlider.addEventListener('input', (e) => {
+        center[0] = parseFloat(e.target.value);
+        centerXValue.textContent = center[0].toFixed(3);
+      });
 
-function getRenderingContext() {
-  canvas.width = canvas.clientWidth;
-  canvas.height = canvas.clientHeight;
-  const gl = canvas.getContext("webgl");
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-  gl.clearColor(0.0, 0.0, 0.0, 1.0);
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  return gl;
-}
+      // Update center Y
+      centerYSlider.addEventListener('input', (e) => {
+        center[1] = parseFloat(e.target.value);
+        centerYValue.textContent = center[1].toFixed(3);
+      });
 
-function initializeAttributes() {
-  // Define full-screen quad as two triangles (covering -1 to 1 in both dimensions)
-  const quadVertices = new Float32Array([
-    // First triangle
-    -1.0, -1.0,
-     1.0, -1.0,
-    -1.0,  1.0,
-    // Second triangle
-    -1.0,  1.0,
-     1.0, -1.0,
-     1.0,  1.0
-  ]);
-  
-  // Get the attribute location
-  const positionLocation = gl.getAttribLocation(program, "a_position");
-  
-  // Create and bind buffer
-  buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
-  
-  // Enable and set up the attribute
-  gl.enableVertexAttribArray(positionLocation);
-  gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-}
+      // Update zoom
+      zoomSlider.addEventListener('input', (e) => {
+        zoom = parseFloat(e.target.value);
+        zoomValue.textContent = zoom.toFixed(2);
+      });
 
-function cleanup() {
-  gl.useProgram(null);
-  if (buffer) {
-    gl.deleteBuffer(buffer);
-  }
-  if (program) {
-    gl.deleteProgram(program);
-  }
-}
+      // Update max iterations
+      maxIterationsSlider.addEventListener('input', (e) => {
+        maxIterations = parseInt(e.target.value);
+        maxIterationsValue.textContent = maxIterations;
+      });
+
+      // Update rotation
+      rotationSlider.addEventListener('input', (e) => {
+        rotation = parseFloat(e.target.value);
+        rotationValue.textContent = rotation.toFixed(2);
+      });
+
+      // Update escape radius
+      escapeRadiusSlider.addEventListener('input', (e) => {
+        escapeRadius = parseFloat(e.target.value);
+        escapeRadiusValue.textContent = escapeRadius.toFixed(1);
+      });
+
+      // Update color offset
+      colorOffsetSlider.addEventListener('input', (e) => {
+        colorOffset = parseFloat(e.target.value);
+        colorOffsetValue.textContent = colorOffset.toFixed(1);
+      });
+
+      // Update color speed
+      colorSpeedSlider.addEventListener('input', (e) => {
+        colorSpeed = parseFloat(e.target.value);
+        colorSpeedValue.textContent = colorSpeed;
+      });
+
+      // Update color intensity
+      colorIntensitySlider.addEventListener('input', (e) => {
+        colorIntensity = parseFloat(e.target.value);
+        colorIntensityValue.textContent = colorIntensity.toFixed(1);
+      });
+
+      // Update Julia mode
+      juliaModeCheckbox.addEventListener('change', (e) => {
+        juliaMode = e.target.checked;
+        juliaModeValue.textContent = juliaMode ? 'On' : 'Off';
+        juliaControls.style.display = juliaMode ? 'block' : 'none';
+        juliaControls2.style.display = juliaMode ? 'block' : 'none';
+      });
+
+      // Update Julia C X
+      juliaXSlider.addEventListener('input', (e) => {
+        juliaC[0] = parseFloat(e.target.value);
+        juliaXValue.textContent = juliaC[0].toFixed(4);
+      });
+
+      // Update Julia C Y
+      juliaYSlider.addEventListener('input', (e) => {
+        juliaC[1] = parseFloat(e.target.value);
+        juliaYValue.textContent = juliaC[1].toFixed(4);
+      });
+
+      // Update color palette
+      colorPaletteSelect.addEventListener('change', (e) => {
+        colorPalette = parseInt(e.target.value);
+      });
+
+      // Reset button
+      resetBtn.addEventListener('click', () => {
+        center = [-0.5, 0.0];
+        zoom = 1.0;
+        maxIterations = 100;
+        rotation = 0.0;
+        escapeRadius = 4.0;
+        colorOffset = 0.0;
+        colorSpeed = 10.0;
+        colorIntensity = 1.0;
+        juliaMode = false;
+        juliaC = [-0.7269, 0.1889];
+        colorPalette = 0;
+
+        centerXSlider.value = center[0];
+        centerYSlider.value = center[1];
+        zoomSlider.value = zoom;
+        maxIterationsSlider.value = maxIterations;
+        rotationSlider.value = rotation;
+        escapeRadiusSlider.value = escapeRadius;
+        colorOffsetSlider.value = colorOffset;
+        colorSpeedSlider.value = colorSpeed;
+        colorIntensitySlider.value = colorIntensity;
+        juliaModeCheckbox.checked = juliaMode;
+        juliaXSlider.value = juliaC[0];
+        juliaYSlider.value = juliaC[1];
+        colorPaletteSelect.value = colorPalette;
+
+        centerXValue.textContent = center[0].toFixed(3);
+        centerYValue.textContent = center[1].toFixed(3);
+        zoomValue.textContent = zoom.toFixed(2);
+        maxIterationsValue.textContent = maxIterations;
+        rotationValue.textContent = rotation.toFixed(2);
+        escapeRadiusValue.textContent = escapeRadius.toFixed(1);
+        colorOffsetValue.textContent = colorOffset.toFixed(1);
+        colorSpeedValue.textContent = colorSpeed;
+        colorIntensityValue.textContent = colorIntensity.toFixed(1);
+        juliaModeValue.textContent = juliaMode ? 'On' : 'Off';
+        juliaXValue.textContent = juliaC[0].toFixed(4);
+        juliaYValue.textContent = juliaC[1].toFixed(4);
+
+        juliaControls.style.display = juliaMode ? 'block' : 'none';
+        juliaControls2.style.display = juliaMode ? 'block' : 'none';
+      });
+    }
+
+    initializeControls();
+
+    // Toggle controls visibility
+    const toggleBtn = document.getElementById('toggleControls2');
+    const controlsPanel = document.getElementById('controls');
+    if (toggleBtn && controlsPanel) {
+      // Ensure button is visible
+      toggleBtn.style.display = 'block';
+      toggleBtn.style.visibility = 'visible';
+      toggleBtn.style.opacity = '1';
+      toggleBtn.style.pointerEvents = 'auto';
+      
+      let controlsVisible = true;
+      toggleBtn.addEventListener('click', () => {
+        controlsVisible = !controlsVisible;
+        if (controlsVisible) {
+          controlsPanel.classList.remove('hidden');
+          toggleBtn.textContent = '⚙️';
+        } else {
+          controlsPanel.classList.add('hidden');
+          toggleBtn.textContent = '👁️';
+        }
+      });
+    }
+
+    function render() {
+      // Update viewport if canvas size changed
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        gl.viewport(0, 0, width, height);
+      }
+
+      // Clear and draw
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(program);
+
+      // Set uniforms
+      gl.uniform2f(resolutionLocation, width, height);
+      gl.uniform2f(centerLocation, center[0], center[1]);
+      gl.uniform1f(zoomLocation, zoom);
+      gl.uniform1i(maxIterationsLocation, maxIterations);
+      gl.uniform1f(rotationLocation, rotation);
+      gl.uniform1f(escapeRadiusLocation, escapeRadius);
+      gl.uniform1f(colorOffsetLocation, colorOffset);
+      gl.uniform1f(colorSpeedLocation, colorSpeed);
+      gl.uniform1f(colorIntensityLocation, colorIntensity);
+      gl.uniform1i(juliaModeLocation, juliaMode ? 1 : 0);
+      gl.uniform2f(juliaCLocation, juliaC[0], juliaC[1]);
+      gl.uniform1i(colorPaletteLocation, colorPalette);
+
+      // Draw full-screen quad (2 triangles = 6 vertices)
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      requestAnimationFrame(render);
+    }
+
+    render();
+
+    function getRenderingContext() {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+      const gl = canvas.getContext("webgl");
+      gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+      gl.clearColor(0.0, 0.0, 0.0, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      return gl;
+    }
+
+    function initializeAttributes() {
+      // Define full-screen quad as two triangles (covering -1 to 1 in both dimensions)
+      const quadVertices = new Float32Array([
+        // First triangle
+        -1.0, -1.0,
+        1.0, -1.0,
+        -1.0, 1.0,
+        // Second triangle
+        -1.0, 1.0,
+        1.0, -1.0,
+        1.0, 1.0
+      ]);
+
+      // Get the attribute location
+      const positionLocation = gl.getAttribLocation(program, "a_position");
+
+      // Create and bind buffer
+      buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
+
+      // Enable and set up the attribute
+      gl.enableVertexAttribArray(positionLocation);
+      gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    function cleanup() {
+      gl.useProgram(null);
+      if (buffer) {
+        gl.deleteBuffer(buffer);
+      }
+      if (program) {
+        gl.deleteProgram(program);
+      }
+    }
 
 
-</script>
+  </script>
 </body>
+
 </html>
