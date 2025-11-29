@@ -10,7 +10,7 @@
 <body>
 <p>Hello World! Hello GLSL!</p>
 <canvas>Your browser does not seem to support HTML canvas.</canvas>
-<div id="controls" class="controls-panel">
+<div id="controls" class="controls-panel" style="display: none;">
   <h3>Fractal Controls</h3>
   <div class="control-group">
     <label for="centerX">Center X:</label>
@@ -113,6 +113,7 @@
   uniform vec2 u_juliaC3; // Third fractal layer Julia C
   uniform float u_greenRotation; // Rotation for green fractal layer
   uniform float u_redRotation; // Rotation for red fractal layer
+  uniform float u_time; // Time for multifractal animation
   
   varying vec2 v_uv;
   
@@ -188,6 +189,42 @@
     else if (palette == 6) return paletteGreen(t);
     else if (palette == 7) return paletteBlue(t);
     else return paletteMonochrome(t);
+  }
+  
+  // Mandelbrot computation function for multifractal layers
+  float mandelbrotMultifractal(vec2 center, float zoom, float rotation, int maxIter) {
+    vec2 c = (v_uv - 0.5) * 2.0;
+    c.x *= u_resolution.x / u_resolution.y;
+    
+    // Apply rotation
+    float cosR = cos(rotation);
+    float sinR = sin(rotation);
+    c = vec2(c.x * cosR - c.y * sinR, c.x * sinR + c.y * cosR);
+    
+    // Apply zoom and center
+    c = c / zoom + center;
+    
+    vec2 z = vec2(0.0);
+    int iterations = 0;
+    
+    for (int i = 0; i < 256; i++) {
+      if (i >= maxIter) break;
+      
+      float x = (z.x * z.x - z.y * z.y) + c.x;
+      float y = (z.x * z.y * 2.0) + c.y;
+      z = vec2(x, y);
+      
+      if (dot(z, z) > 4.0) {
+        iterations = i;
+        break;
+      }
+    }
+    
+    if (iterations == maxIter) {
+      return 0.0;
+    }
+    
+    return float(iterations) / float(maxIter);
   }
   
   // Compute fractal for given Julia C constant
@@ -286,6 +323,69 @@
     }
     
     // Clamp to prevent over-brightening
+    finalColor = clamp(finalColor, 0.0, 1.0);
+    
+    // Add multifractal layers with full opacity
+    vec3 multifractalColor = vec3(0.0);
+    
+    // Layer 1: Red/Orange fractal - rotating and zooming
+    float mt1 = u_time * 0.3;
+    vec2 mcenter1 = vec2(-0.5 + 0.2 * sin(mt1), 0.0 + 0.2 * cos(mt1 * 0.7));
+    float mzoom1 = 1.0 + 0.5 * sin(mt1 * 0.5);
+    float mrot1 = mt1 * 0.2;
+    float mm1 = mandelbrotMultifractal(mcenter1, mzoom1, mrot1, 80);
+    vec3 mcolor1 = vec3(
+      0.8 + 0.2 * cos(mm1 * 20.0 + mt1),
+      0.3 + 0.2 * sin(mm1 * 15.0),
+      0.1
+    ) * mm1 * 0.6;
+    multifractalColor += mcolor1;
+    
+    // Layer 2: Cyan/Blue fractal - different animation
+    float mt2 = u_time * 0.4;
+    vec2 mcenter2 = vec2(-0.75 + 0.15 * cos(mt2 * 0.8), 0.1 + 0.15 * sin(mt2));
+    float mzoom2 = 1.2 + 0.3 * cos(mt2 * 0.6);
+    float mrot2 = -mt2 * 0.15;
+    float mm2 = mandelbrotMultifractal(mcenter2, mzoom2, mrot2, 100);
+    vec3 mcolor2 = vec3(
+      0.1,
+      0.5 + 0.3 * cos(mm2 * 18.0 + mt2 * 2.0),
+      0.9 + 0.1 * sin(mm2 * 12.0)
+    ) * mm2 * 0.5;
+    multifractalColor += mcolor2;
+    
+    // Layer 3: Green/Magenta fractal - faster animation
+    float mt3 = u_time * 0.5;
+    vec2 mcenter3 = vec2(-0.2 + 0.1 * sin(mt3 * 1.2), 0.8 + 0.1 * cos(mt3 * 0.9));
+    float mzoom3 = 0.8 + 0.4 * sin(mt3 * 0.7);
+    float mrot3 = mt3 * 0.25;
+    float mm3 = mandelbrotMultifractal(mcenter3, mzoom3, mrot3, 90);
+    vec3 mcolor3 = vec3(
+      0.2 + 0.3 * sin(mm3 * 16.0),
+      0.8 + 0.2 * cos(mm3 * 14.0 + mt3),
+      0.4 + 0.3 * sin(mm3 * 10.0)
+    ) * mm3 * 0.4;
+    multifractalColor += mcolor3;
+    
+    // Layer 4: Purple/Yellow fractal - slow and smooth
+    float mt4 = u_time * 0.25;
+    vec2 mcenter4 = vec2(0.0 + 0.12 * cos(mt4 * 0.5), -0.5 + 0.12 * sin(mt4 * 0.6));
+    float mzoom4 = 1.1 + 0.2 * cos(mt4 * 0.4);
+    float mrot4 = -mt4 * 0.1;
+    float mm4 = mandelbrotMultifractal(mcenter4, mzoom4, mrot4, 85);
+    vec3 mcolor4 = vec3(
+      0.6 + 0.2 * cos(mm4 * 22.0),
+      0.3 + 0.2 * sin(mm4 * 19.0),
+      0.7 + 0.2 * cos(mm4 * 17.0 + mt4)
+    ) * mm4 * 0.35;
+    multifractalColor += mcolor4;
+    
+    // Normalize and enhance multifractal
+    multifractalColor = pow(multifractalColor, vec3(0.9)); // Slight gamma correction
+    multifractalColor = clamp(multifractalColor, 0.0, 1.0);
+    
+    // Blend multifractal with full opacity
+    finalColor = finalColor + multifractalColor;
     finalColor = clamp(finalColor, 0.0, 1.0);
     
     gl_FragColor = vec4(finalColor, 1.0);
@@ -450,10 +550,23 @@ const vertexShader = gl.createShader(gl.VERTEX_SHADER);
 gl.shaderSource(vertexShader, source);
 gl.compileShader(vertexShader);
 
+if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+  const error = gl.getShaderInfoLog(vertexShader);
+  console.error("Vertex shader compilation error:", error);
+  throw new Error("Vertex shader failed to compile: " + error);
+}
+
 source = document.querySelector("#fragment-shader").innerHTML;
 const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
 gl.shaderSource(fragmentShader, source);
 gl.compileShader(fragmentShader);
+
+if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+  const error = gl.getShaderInfoLog(fragmentShader);
+  console.error("Fragment shader compilation error:", error);
+  document.querySelector("p").textContent = "Fragment shader error: " + error;
+  throw new Error("Fragment shader failed to compile: " + error);
+}
 const program = gl.createProgram();
 gl.attachShader(program, vertexShader);
 gl.attachShader(program, fragmentShader);
@@ -462,6 +575,10 @@ gl.detachShader(program, vertexShader);
 gl.detachShader(program, fragmentShader);
 gl.deleteShader(vertexShader);
 gl.deleteShader(fragmentShader);
+
+// Declare buffer before it might be used in cleanup()
+let buffer = null;
+
 if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
   const linkErrLog = gl.getProgramInfoLog(program);
   cleanup();
@@ -470,7 +587,6 @@ if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
   throw new Error("Program failed to link");
 }
 
-let buffer;
 initializeAttributes();
 
 // Get uniform locations
@@ -489,6 +605,7 @@ const juliaC2Location = gl.getUniformLocation(program, "u_juliaC2");
 const juliaC3Location = gl.getUniformLocation(program, "u_juliaC3");
 const greenRotationLocation = gl.getUniformLocation(program, "u_greenRotation");
 const redRotationLocation = gl.getUniformLocation(program, "u_redRotation");
+const timeLocation = gl.getUniformLocation(program, "u_time");
 const colorPaletteLocation = gl.getUniformLocation(program, "u_colorPalette");
 
 // Mandelbrot parameters (mutable for UI controls)
@@ -503,6 +620,9 @@ let colorIntensity = 1.0;
 let juliaMode = true; // Set Julia mode to true
 let juliaC = [-1.2900, 0.1889]; // Set initial Julia C X to -1.2900
 let colorPalette = 1; // Set to Fire palette
+
+// Animation start time for multifractal
+const startTime = Date.now();
 
 // Ease-in-out function for smooth animation
 function easeInOut(t) {
@@ -973,6 +1093,7 @@ function render() {
     gl.uniform2f(juliaC3Location, juliaC3[0], juliaC3[1]);
     gl.uniform1f(greenRotationLocation, greenRotation);
     gl.uniform1f(redRotationLocation, redRotation);
+    gl.uniform1f(timeLocation, (Date.now() - startTime) / 1000.0);
     gl.uniform1i(colorPaletteLocation, colorPalette);
     
     gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -1079,6 +1200,7 @@ function render() {
     gl.uniform2f(juliaC3Location, juliaC3[0], juliaC3[1]);
     gl.uniform1f(greenRotationLocation, greenRotation);
     gl.uniform1f(redRotationLocation, redRotation);
+    gl.uniform1f(timeLocation, (Date.now() - startTime) / 1000.0);
     gl.uniform1i(colorPaletteLocation, colorPalette);
     
     gl.drawArrays(gl.TRIANGLES, 0, 6);
