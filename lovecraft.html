@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eldritch Rift — Lovecraftian Shader</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            background-color: #030208;
+            color: #6a7a72;
+        }
+
+        canvas {
+            filter: contrast(1.08) saturate(1.15);
+            z-index: 1 !important;
+            position: relative !important;
+        }
+
+        #toggleControls {
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            z-index: 99999 !important;
+            background: rgba(45, 80, 60, 0.92) !important;
+            color: #c8e8d8 !important;
+            border: 1px solid #2a4a3a !important;
+            border-radius: 50% !important;
+            width: 56px !important;
+            height: 56px !important;
+            font-size: 24px !important;
+            cursor: pointer !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+            transition: all 0.3s ease !important;
+            display: block !important;
+        }
+
+        #toggleControls:hover {
+            background: rgba(55, 100, 75, 1) !important;
+            transform: scale(1.08) !important;
+        }
+
+        .controls-panel.hidden {
+            transform: translateX(100%) !important;
+        }
+
+        .controls-panel {
+            transition: transform 0.3s ease !important;
+            background: rgba(8, 10, 14, 0.92);
+            border: 1px solid #1e2a24;
+            color: #9ab0a5;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        h3 {
+            color: #7dd4a8;
+            border-bottom: 1px solid #1a3028;
+        }
+
+        input[type=range] {
+            background: #1a2420;
+        }
+
+        .value-display {
+            color: #5ec89a;
+            font-family: monospace;
+        }
+
+        .reset-btn {
+            background: #1a3028;
+            color: #8ecfb0;
+            border: 1px solid #2a4a3c;
+        }
+    </style>
+</head>
+
+<body>
+    <p>Eldritch Rift — twisted geometry in the deep</p>
+    <canvas>Your browser does not seem to support HTML canvas.</canvas>
+
+    <div id="controls" class="controls-panel">
+        <h3>Geometry</h3>
+        <div class="control-group">
+            <label for="tentacleTwist">Tentacle twist:</label>
+            <input type="range" id="tentacleTwist" min="0.1" max="1.2" step="0.01" value="0.45">
+            <span class="value-display" id="tentacleTwistValue">0.45</span>
+        </div>
+        <div class="control-group">
+            <label for="riftSize">Central rift:</label>
+            <input type="range" id="riftSize" min="0.2" max="1.2" step="0.01" value="0.55">
+            <span class="value-display" id="riftSizeValue">0.55</span>
+        </div>
+        <div class="control-group">
+            <label for="tentacleCount">Tentacle columns:</label>
+            <input type="range" id="tentacleCount" min="4" max="12" step="1" value="8">
+            <span class="value-display" id="tentacleCountValue">8</span>
+        </div>
+        <div class="control-group">
+            <label for="merge">Organic merge:</label>
+            <input type="range" id="merge" min="0.05" max="0.6" step="0.01" value="0.28">
+            <span class="value-display" id="mergeValue">0.28</span>
+        </div>
+
+        <h3>Atmosphere</h3>
+        <div class="control-group">
+            <label for="fogDensity">Fog density:</label>
+            <input type="range" id="fogDensity" min="0.05" max="0.9" step="0.01" value="0.42">
+            <span class="value-display" id="fogDensityValue">0.42</span>
+        </div>
+        <div class="control-group">
+            <label for="glowIntensity">Biolume glow:</label>
+            <input type="range" id="glowIntensity" min="0.2" max="2.5" step="0.01" value="1.15">
+            <span class="value-display" id="glowIntensityValue">1.15</span>
+        </div>
+        <div class="control-group">
+            <label for="pulseSpeed">Pulse speed:</label>
+            <input type="range" id="pulseSpeed" min="0.0" max="2.0" step="0.05" value="0.65">
+            <span class="value-display" id="pulseSpeedValue">0.65</span>
+        </div>
+        <div class="control-group">
+            <label for="colorShift">Hue shift:</label>
+            <input type="range" id="colorShift" min="0.0" max="6.28" step="0.05" value="0.0">
+            <span class="value-display" id="colorShiftValue">0.00</span>
+        </div>
+
+        <h3>Motion</h3>
+        <div class="control-group">
+            <label for="orbitSpeed">Camera orbit:</label>
+            <input type="range" id="orbitSpeed" min="0.0" max="0.8" step="0.01" value="0.12">
+            <span class="value-display" id="orbitSpeedValue">0.12</span>
+        </div>
+        <div class="control-group">
+            <label for="driftSpeed">Void drift:</label>
+            <input type="range" id="driftSpeed" min="0.0" max="1.0" step="0.01" value="0.18">
+            <span class="value-display" id="driftSpeedValue">0.18</span>
+        </div>
+
+        <h3>Performance</h3>
+        <div class="control-group">
+            <label for="quality">Quality (resolution):</label>
+            <input type="range" id="quality" min="0.15" max="1.0" step="0.05" value="0.45">
+            <span class="value-display" id="qualityValue">0.45</span>
+        </div>
+
+        <button id="resetBtn" class="reset-btn">Reset to default</button>
+    </div>
+    <button id="toggleControls" title="Toggle controls">⚙️</button>
+
+    <script type="x-shader/x-vertex" id="vertex-shader">
+attribute vec2 a_position;
+varying vec2 v_uv;
+
+void main() {
+  v_uv = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}
+</script>
+
+    <script type="x-shader/x-fragment" id="fragment-shader">
+precision mediump float;
+
+uniform vec2 u_resolution;
+uniform float u_time;
+
+uniform float u_tentacleTwist;
+uniform float u_riftSize;
+uniform int u_tentacleCount;
+uniform float u_merge;
+uniform float u_fogDensity;
+uniform float u_glowIntensity;
+uniform float u_pulseSpeed;
+uniform float u_colorShift;
+uniform float u_orbitSpeed;
+uniform float u_driftSpeed;
+
+varying vec2 v_uv;
+
+#define MAX_STEPS 72
+#define MAX_DIST 28.0
+#define SURF_DIST 0.004
+#define PI 3.14159265
+
+mat2 rot2(float a) {
+  float s = sin(a);
+  float c = cos(a);
+  return mat2(c, -s, s, c);
+}
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+    mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+    u.y
+  );
+}
+
+float fbm(vec2 p) {
+  float v = 0.0;
+  float a = 0.5;
+  for (int i = 0; i < 5; i++) {
+    v += a * noise(p);
+    p *= 2.1;
+    a *= 0.5;
+  }
+  return v;
+}
+
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+float sdSphere(vec3 p, float r) {
+  return length(p) - r;
+}
+
+// Warp position for non-euclidean unease
+vec3 domainWarp(vec3 p, float t) {
+  vec3 q = p;
+  float w = u_driftSpeed;
+  q.x += 0.35 * sin(q.y * 1.7 + q.z * 0.8 + t * w);
+  q.y += 0.25 * sin(q.z * 1.5 + q.x * 0.9 + t * w * 1.3);
+  q.z += 0.3 * sin(q.x * 1.2 + q.y * 1.1 + t * w * 0.9);
+  return q;
+}
+
+float sceneSDF(vec3 p0) {
+  vec3 p = domainWarp(p0, u_time);
+  float m = u_merge;
+
+  float tw = u_tentacleTwist;
+  float t = u_time * u_pulseSpeed;
+
+  // Central "rift" — pulsating, slightly irregular sphere
+  float ang = atan(p.y, p.x);
+  float rPulse = u_riftSize * (1.0 + 0.12 * sin(ang * 6.0 + t * 2.0));
+  float eye = sdSphere(p, rPulse);
+
+  // Helix twist on horizontal plane for tentacle ring
+  vec3 pt = p;
+  float helix = tw * pt.y * 2.5;
+  pt.xz *= rot2(helix + t * 0.15);
+
+  float d = eye;
+  int count = u_tentacleCount;
+
+  for (int i = 0; i < 12; i++) {
+    if (i >= count) break;
+    float fi = float(i);
+    float a = (2.0 * PI * fi) / float(count);
+    vec3 q = pt;
+    q.xz *= rot2(a + t * 0.08);
+    q.x -= 1.65 + 0.08 * sin(t + fi);
+
+    float wave = 0.22 * sin(q.y * 3.2 + fi * 1.7 + t * 1.5);
+    q.z += wave;
+    q.x += 0.06 * sin(q.y * 5.0 + t);
+
+    float rad = 0.11 + 0.035 * sin(q.y * 7.0 + t * 2.5 + fi);
+    float cyl = length(q.xz) - rad;
+    float cap = max(cyl, abs(q.y) - 3.8 - 0.15 * sin(q.x * 4.0 + t));
+
+    d = smin(d, cap, m);
+  }
+
+  // Secondary smaller tendrils (higher frequency)
+  vec3 ps = p * vec3(1.1, 1.4, 1.1);
+  ps.xz *= rot2(t * 0.2);
+  float tend = length(vec2(length(ps.xz) - 0.35, ps.y * 0.9)) - 0.04;
+  tend = max(tend - 0.02 * sin(ps.y * 12.0 + t * 3.0), abs(ps.y) - 2.2);
+  d = smin(d, tend, m * 0.6);
+
+  return d;
+}
+
+vec3 calcNormal(vec3 p) {
+  vec2 e = vec2(0.0015, 0.0);
+  float d = sceneSDF(p);
+  return normalize(vec3(
+    sceneSDF(p + e.xyy) - d,
+    sceneSDF(p + e.yxy) - d,
+    sceneSDF(p + e.yyx) - d
+  ));
+}
+
+vec3 eldritchColor(vec3 p, vec3 n, float glowAmt, float marchT) {
+  float t = u_time * u_pulseSpeed + u_colorShift;
+  float pulse = 0.5 + 0.5 * sin(length(p) * 4.0 + t * 2.0);
+
+  vec3 deep = vec3(0.02, 0.03, 0.06);
+  vec3 sick = vec3(0.12, 0.42, 0.28);
+  vec3 violet = vec3(0.35, 0.1, 0.45);
+  vec3 bile = vec3(0.25, 0.55, 0.35);
+
+  float nDot = 0.5 + 0.5 * dot(n, normalize(vec3(0.2, 0.85, 0.35)));
+  float cavity = 0.35 + 0.65 * fbm(p.xz * 2.5 + p.y);
+
+  vec3 base = mix(deep, mix(sick, violet, pulse * nDot), cavity);
+  base = mix(base, bile, glowAmt * 0.85);
+
+  float rim = pow(1.0 - max(dot(n, vec3(0.0, 0.0, 1.0)), 0.0), 3.0);
+  base += vec3(0.15, 0.45, 0.35) * rim * 0.4;
+
+  // Depth desaturation
+  float fogMix = 1.0 - exp(-marchT * 0.045);
+  base = mix(base, deep * 1.2, fogMix * 0.5);
+
+  return base;
+}
+
+vec4 raymarch(vec3 ro, vec3 rd) {
+  float t = 0.0;
+  float glow = 0.0;
+  float minD = 1e5;
+
+  for (int i = 0; i < MAX_STEPS; i++) {
+    vec3 p = ro + rd * t;
+    float d = sceneSDF(p);
+    minD = min(minD, d);
+
+    glow += u_fogDensity * 0.018 / (0.025 + d * d * 18.0);
+
+    t += d;
+    if (t > MAX_DIST) break;
+    if (d < SURF_DIST) {
+      vec3 n = calcNormal(p);
+      vec3 col = eldritchColor(p, n, glow, t);
+      return vec4(col, t);
+    }
+  }
+
+  // Miss — sky / void
+  vec2 sn = rd.xy * 40.0 + u_time * 0.02;
+  float stars = pow(noise(sn), 12.0) * 0.85;
+  float neb = fbm(rd.xz * 3.0 + u_time * u_driftSpeed * 0.1);
+  vec3 sky = vec3(0.01, 0.015, 0.04);
+  sky += vec3(0.08, 0.03, 0.12) * neb * 0.35;
+  sky += vec3(0.35, 0.5, 0.4) * stars;
+
+  vec3 col = sky + vec3(0.15, 0.55, 0.35) * glow * u_glowIntensity * 0.12;
+  return vec4(col, MAX_DIST);
+}
+
+void main() {
+  vec2 uv = (v_uv - 0.5) * 2.0;
+  uv.x *= u_resolution.x / u_resolution.y;
+
+  float orbit = u_time * u_orbitSpeed;
+  float camR = 4.1;
+  vec3 ro = vec3(camR * cos(orbit), 0.35 + 0.25 * sin(u_time * 0.2), camR * sin(orbit));
+  vec3 target = vec3(0.0, 0.1, 0.0);
+
+  vec3 f = normalize(target - ro);
+  vec3 r = normalize(cross(vec3(0.0, 1.0, 0.0), f));
+  vec3 u = cross(f, r);
+  vec3 rd = normalize(f + uv.x * r + uv.y * u);
+
+  vec4 hit = raymarch(ro, rd);
+  vec3 col = hit.rgb;
+
+  // Vignette
+  float vig = 1.0 - length(v_uv - 0.5) * 1.15;
+  col *= vig;
+
+  // Subtle corner tint (mild chromatic unease)
+  float ca = length(v_uv - 0.5);
+  col.rb += vec2(0.02, 0.015) * ca;
+
+  col = col / (col + vec3(0.85));
+  col = pow(col, vec3(0.95));
+
+  gl_FragColor = vec4(col, 1.0);
+}
+</script>
+
+    <script>
+        const canvas = document.querySelector("canvas");
+        const gl = canvas.getContext("webgl");
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error(gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+
+        const vertexShaderSource = document.getElementById("vertex-shader").text;
+        const fragmentShaderSource = document.getElementById("fragment-shader").text;
+
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error(gl.getProgramInfoLog(program));
+        }
+
+        gl.useProgram(program);
+
+        const positionLocation = gl.getAttribLocation(program, "a_position");
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            -1, -1, 1, -1, -1, 1,
+            -1, 1, 1, -1, 1, 1
+        ]), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(positionLocation);
+        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+        const uResolution = gl.getUniformLocation(program, "u_resolution");
+        const uTime = gl.getUniformLocation(program, "u_time");
+        const uTentacleTwist = gl.getUniformLocation(program, "u_tentacleTwist");
+        const uRiftSize = gl.getUniformLocation(program, "u_riftSize");
+        const uTentacleCount = gl.getUniformLocation(program, "u_tentacleCount");
+        const uMerge = gl.getUniformLocation(program, "u_merge");
+        const uFogDensity = gl.getUniformLocation(program, "u_fogDensity");
+        const uGlowIntensity = gl.getUniformLocation(program, "u_glowIntensity");
+        const uPulseSpeed = gl.getUniformLocation(program, "u_pulseSpeed");
+        const uColorShift = gl.getUniformLocation(program, "u_colorShift");
+        const uOrbitSpeed = gl.getUniformLocation(program, "u_orbitSpeed");
+        const uDriftSpeed = gl.getUniformLocation(program, "u_driftSpeed");
+
+        const defaults = {
+            tentacleTwist: 0.45,
+            riftSize: 0.55,
+            tentacleCount: 8,
+            merge: 0.28,
+            fogDensity: 0.42,
+            glowIntensity: 1.15,
+            pulseSpeed: 0.65,
+            colorShift: 0.0,
+            orbitSpeed: 0.12,
+            driftSpeed: 0.18,
+            quality: 0.45
+        };
+
+        let params = { ...defaults };
+
+        function setupControls() {
+            const bind = (id, key, intVal = false) => {
+                const input = document.getElementById(id);
+                const display = document.getElementById(id + "Value");
+                input.addEventListener("input", (e) => {
+                    const v = intVal ? parseInt(e.target.value, 10) : parseFloat(e.target.value);
+                    params[key] = v;
+                    if (display) display.textContent = intVal ? String(v) : v.toFixed(2);
+                });
+            };
+
+            bind("tentacleTwist", "tentacleTwist");
+            bind("riftSize", "riftSize");
+            bind("tentacleCount", "tentacleCount", true);
+            bind("merge", "merge");
+            bind("fogDensity", "fogDensity");
+            bind("glowIntensity", "glowIntensity");
+            bind("pulseSpeed", "pulseSpeed");
+            bind("colorShift", "colorShift");
+            bind("orbitSpeed", "orbitSpeed");
+            bind("driftSpeed", "driftSpeed");
+            bind("quality", "quality");
+
+            document.getElementById("resetBtn").addEventListener("click", () => {
+                params = { ...defaults };
+                Object.keys(defaults).forEach((key) => {
+                    const input = document.getElementById(key);
+                    const display = document.getElementById(key + "Value");
+                    if (input) {
+                        input.value = params[key];
+                        if (display) {
+                            display.textContent = key === "tentacleCount"
+                                ? String(params[key])
+                                : Number(params[key]).toFixed(2);
+                        }
+                    }
+                });
+            });
+        }
+
+        setupControls();
+
+        const toggleBtn = document.getElementById("toggleControls");
+        const controlsPanel = document.getElementById("controls");
+        if (toggleBtn && controlsPanel) {
+            let controlsVisible = true;
+            toggleBtn.addEventListener("click", () => {
+                controlsVisible = !controlsVisible;
+                if (controlsVisible) {
+                    controlsPanel.classList.remove("hidden");
+                    toggleBtn.textContent = "⚙️";
+                } else {
+                    controlsPanel.classList.add("hidden");
+                    toggleBtn.textContent = "👁️";
+                }
+            });
+        }
+
+        let startTime = Date.now();
+
+        function render() {
+            const displayWidth = canvas.clientWidth;
+            const displayHeight = canvas.clientHeight;
+            const targetWidth = Math.floor(displayWidth * params.quality);
+            const targetHeight = Math.floor(displayHeight * params.quality);
+
+            if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+                canvas.width = targetWidth;
+                canvas.height = targetHeight;
+                gl.viewport(0, 0, targetWidth, targetHeight);
+            }
+
+            const time = (Date.now() - startTime) * 0.001;
+
+            gl.uniform2f(uResolution, targetWidth, targetHeight);
+            gl.uniform1f(uTime, time);
+            gl.uniform1f(uTentacleTwist, params.tentacleTwist);
+            gl.uniform1f(uRiftSize, params.riftSize);
+            gl.uniform1i(uTentacleCount, params.tentacleCount);
+            gl.uniform1f(uMerge, params.merge);
+            gl.uniform1f(uFogDensity, params.fogDensity);
+            gl.uniform1f(uGlowIntensity, params.glowIntensity);
+            gl.uniform1f(uPulseSpeed, params.pulseSpeed);
+            gl.uniform1f(uColorShift, params.colorShift);
+            gl.uniform1f(uOrbitSpeed, params.orbitSpeed);
+            gl.uniform1f(uDriftSpeed, params.driftSpeed);
+
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            requestAnimationFrame(render);
+        }
+
+        render();
+    </script>
+</body>
+
+</html>
