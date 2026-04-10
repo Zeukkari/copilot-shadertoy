@@ -703,6 +703,7 @@ attribute vec2 a_uv;
 attribute vec3 a_centroid;
 attribute vec3 a_burstDir;
 attribute float a_triRnd;
+attribute vec3 a_bary;
 uniform mat4 u_mvp;
 uniform mat4 u_modelView;
 uniform mat3 u_normalMatrix;
@@ -719,6 +720,7 @@ varying vec3 v_view;
 varying vec2 v_uv;
 varying float v_dispHighlight;
 varying float v_shardMix;
+varying vec3 v_bary;
 
 mat3 rotAxisAngle(vec3 axis, float angle) {
   axis = normalize(axis);
@@ -771,6 +773,7 @@ void main() {
   v_view = -mvPos.xyz;
   v_normal = u_normalMatrix * n;
   v_uv = a_uv;
+  v_bary = a_bary;
   gl_Position = u_mvp * vec4(p, 1.0);
 }
 </script>
@@ -782,10 +785,13 @@ varying vec3 v_view;
 varying vec2 v_uv;
 varying float v_dispHighlight;
 varying float v_shardMix;
+varying vec3 v_bary;
 uniform float u_time;
 uniform float u_effectMode;
 uniform float u_dispAmp;
 uniform float u_dispCrest;
+uniform vec3 u_edgeColor;
+uniform float u_edgeWidth;
 void main() {
   vec3 N = normalize(v_normal);
   vec3 V = normalize(v_view);
@@ -824,6 +830,9 @@ void main() {
     col = mix(col, col * vec3(1.04, 1.1, 1.06), v_shardMix * 0.18);
     col = pow(col, vec3(0.96));
   }
+  float em = min(v_bary.x, min(v_bary.y, v_bary.z));
+  float edgeBlend = smoothstep(0.0, u_edgeWidth, em);
+  col = mix(u_edgeColor, col, edgeBlend);
   gl_FragColor = vec4(col, 1.0);
 }
 </script>
@@ -1079,6 +1088,7 @@ void main() {
         const centOut = new Float32Array(vtxCount * 3);
         const burstOut = new Float32Array(vtxCount * 3);
         const rndOut = new Float32Array(vtxCount);
+        const baryOut = new Float32Array(vtxCount * 3);
 
         const cx = (min[0] + max[0]) * 0.5;
         const cy = (min[1] + max[1]) * 0.5;
@@ -1145,9 +1155,22 @@ void main() {
                 burstOut[o * 3 + 1] = by;
                 burstOut[o * 3 + 2] = bz;
                 rndOut[o] = rnd;
+                if (k === 0) {
+                    baryOut[o * 3] = 1;
+                    baryOut[o * 3 + 1] = 0;
+                    baryOut[o * 3 + 2] = 0;
+                } else if (k === 1) {
+                    baryOut[o * 3] = 0;
+                    baryOut[o * 3 + 1] = 1;
+                    baryOut[o * 3 + 2] = 0;
+                } else {
+                    baryOut[o * 3] = 0;
+                    baryOut[o * 3 + 1] = 0;
+                    baryOut[o * 3 + 2] = 1;
+                }
             }
         }
-        return { posOut, norOut, uvOut, centOut, burstOut, rndOut, vertexCount: vtxCount };
+        return { posOut, norOut, uvOut, centOut, burstOut, rndOut, baryOut, vertexCount: vtxCount };
     }
 
     function getSceneDrawables(gltf) {
@@ -1298,6 +1321,10 @@ void main() {
     const uExplodeAmt = gl.getUniformLocation(modelProg, "u_explodeAmt");
     const uShardSpin = gl.getUniformLocation(modelProg, "u_shardSpin");
     const uBurstPulse = gl.getUniformLocation(modelProg, "u_burstPulse");
+    const uEdgeColor = gl.getUniformLocation(modelProg, "u_edgeColor");
+    const uEdgeWidth = gl.getUniformLocation(modelProg, "u_edgeWidth");
+
+    const mBary = gl.getAttribLocation(modelProg, "a_bary");
 
     let mesh = null;
     let vertexCount = 0;
@@ -1803,6 +1830,10 @@ void main() {
             gl.bindBuffer(gl.ARRAY_BUFFER, rndBuf);
             gl.bufferData(gl.ARRAY_BUFFER, exp.rndOut, gl.STATIC_DRAW);
 
+            const baryBuf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, baryBuf);
+            gl.bufferData(gl.ARRAY_BUFFER, exp.baryOut, gl.STATIC_DRAW);
+
             vertexCount = exp.vertexCount;
 
             mesh = {
@@ -1812,6 +1843,7 @@ void main() {
                 centBuf,
                 burstBuf,
                 rndBuf,
+                baryBuf,
                 modelBase,
                 hasUv: !!exp.uvOut
             };
@@ -2060,6 +2092,10 @@ void main() {
         gl.enableVertexAttribArray(mTriRnd);
         gl.vertexAttribPointer(mTriRnd, 1, gl.FLOAT, false, 0, 0);
 
+        gl.bindBuffer(gl.ARRAY_BUFFER, mesh.baryBuf);
+        gl.enableVertexAttribArray(mBary);
+        gl.vertexAttribPointer(mBary, 3, gl.FLOAT, false, 0, 0);
+
         gl.uniformMatrix4fv(uMvp, false, mvp);
         gl.uniformMatrix4fv(uMv, false, modelView);
         gl.uniformMatrix3fv(uNorm, false, normMat);
@@ -2072,6 +2108,8 @@ void main() {
         gl.uniform1f(uExplodeAmt, params.explodeAmt);
         gl.uniform1f(uShardSpin, params.shardSpin);
         gl.uniform1f(uBurstPulse, Math.min(1, Math.max(0, params.burstPulse + pointerEffect.burstAdd)));
+        gl.uniform3f(uEdgeColor, 0.38, 0.92, 0.72);
+        gl.uniform1f(uEdgeWidth, 0.035);
         gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
     }
 
