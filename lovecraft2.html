@@ -102,8 +102,54 @@
         </div>
         <div class="control-group">
             <label for="camDist">Camera distance:</label>
-            <input type="range" id="camDist" min="0.6" max="3.5" step="0.02" value="1.0">
-            <span class="value-display" id="camDistValue">1.00</span>
+            <input type="range" id="camDist" min="0.6" max="3.5" step="0.02" value="2.7">
+            <span class="value-display" id="camDistValue">2.70</span>
+        </div>
+
+        <h3>Mesh effect</h3>
+        <p style="font-size:11px;color:#6a806f;margin:-6px 0 10px;line-height:1.35;">Reference screen recording: <strong>triangle burst</strong> — each face flies outward and tumbles. <a href="https://sketchfab.com/3d-models/hajoilumies-025aecc3232341119d73c6560ad5fe33" style="color:#7dd4a8;">Hajoilumies</a> on Sketchfab.</p>
+        <div class="control-group">
+            <label for="effectMode">Mode:</label>
+            <select id="effectMode" style="background:#1a2420;color:#9ab0a5;border:1px solid #2a4a3c;padding:4px 8px;border-radius:4px;width:100%;">
+                <option value="shards" selected>Triangle burst (reference)</option>
+                <option value="waves">Waves along normals</option>
+            </select>
+        </div>
+        <div class="control-group" id="shardControls">
+            <label for="explodeAmt">Burst amount:</label>
+            <input type="range" id="explodeAmt" min="0" max="1" step="0.01" value="0">
+            <span class="value-display" id="explodeAmtValue">0.00</span>
+        </div>
+        <div class="control-group" id="shardControls2">
+            <label for="shardSpin">Shard spin:</label>
+            <input type="range" id="shardSpin" min="0" max="3" step="0.02" value="0.9">
+            <span class="value-display" id="shardSpinValue">0.90</span>
+        </div>
+        <div class="control-group" id="shardControls3">
+            <label for="burstPulse">Burst pulse:</label>
+            <input type="range" id="burstPulse" min="0" max="1" step="0.02" value="0.25">
+            <span class="value-display" id="burstPulseValue">0.25</span>
+        </div>
+        <p style="font-size:11px;color:#6a806f;margin:4px 0 0;line-height:1.35;">3s calm hold, then burst: shard spin elastic from 0; burst amount uses the same slow power curve to ease up then ease back to 0 each iteration.</p>
+        <div class="control-group" id="waveControls" style="display:none;">
+            <label for="dispAmp">Wave strength:</label>
+            <input type="range" id="dispAmp" min="0" max="0.2" step="0.002" value="0.04">
+            <span class="value-display" id="dispAmpValue">0.04</span>
+        </div>
+        <div class="control-group" id="waveControls2" style="display:none;">
+            <label for="dispFreq">Spatial frequency:</label>
+            <input type="range" id="dispFreq" min="0.5" max="12" step="0.1" value="3.5">
+            <span class="value-display" id="dispFreqValue">3.50</span>
+        </div>
+        <div class="control-group" id="waveControls3" style="display:none;">
+            <label for="dispSpeed">Wave speed:</label>
+            <input type="range" id="dispSpeed" min="0" max="4" step="0.05" value="1.2">
+            <span class="value-display" id="dispSpeedValue">1.20</span>
+        </div>
+        <div class="control-group" id="waveControls4" style="display:none;">
+            <label for="dispCrest">Crest highlight:</label>
+            <input type="range" id="dispCrest" min="0" max="1" step="0.02" value="1.0">
+            <span class="value-display" id="dispCrestValue">1.00</span>
         </div>
 
         <h3>Void (same as Lovecraft)</h3>
@@ -189,6 +235,9 @@ uniform float u_pulseSpeed;
 uniform float u_colorShift;
 uniform float u_orbitSpeed;
 uniform float u_driftSpeed;
+uniform vec3 u_tentacleBack;
+uniform float u_tentacleLift;
+uniform float u_tentacleBackAmt;
 varying vec2 v_uv;
 #define MAX_STEPS 72
 #define MAX_DIST 28.0
@@ -236,7 +285,8 @@ float sceneSDF(vec3 p0) {
   float ang = atan(p.y, p.x);
   float rPulse = u_riftSize * (1.0 + 0.12 * sin(ang * 6.0 + t * 2.0));
   float eye = sdSphere(p, rPulse);
-  vec3 pt = p;
+  vec3 tentRoot = u_tentacleBack * u_tentacleBackAmt + vec3(0.0, u_tentacleLift, 0.0);
+  vec3 pt = p - tentRoot;
   float helix = tw * pt.y * 2.5;
   pt.xz *= rot2(helix + t * 0.15);
   float d = eye;
@@ -254,9 +304,9 @@ float sceneSDF(vec3 p0) {
     float rad = 0.11 + 0.035 * sin(q.y * 7.0 + t * 2.5 + fi);
     float cyl = length(q.xz) - rad;
     float cap = max(cyl, abs(q.y) - 3.8 - 0.15 * sin(q.x * 4.0 + t));
-    d = smin(d, cap, m);
+    d = smin(d, cap, m * 1.15);
   }
-  vec3 ps = p * vec3(1.1, 1.4, 1.1);
+  vec3 ps = (p - tentRoot * 0.85) * vec3(1.1, 1.4, 1.1);
   ps.xz *= rot2(t * 0.2);
   float tend = length(vec2(length(ps.xz) - 0.35, ps.y * 0.9)) - 0.04;
   tend = max(tend - 0.02 * sin(ps.y * 12.0 + t * 3.0), abs(ps.y) - 2.2);
@@ -340,18 +390,78 @@ precision mediump float;
 attribute vec3 a_position;
 attribute vec3 a_normal;
 attribute vec2 a_uv;
+attribute vec3 a_centroid;
+attribute vec3 a_burstDir;
+attribute float a_triRnd;
 uniform mat4 u_mvp;
 uniform mat4 u_modelView;
 uniform mat3 u_normalMatrix;
+uniform float u_time;
+uniform float u_effectMode;
+uniform float u_dispAmp;
+uniform float u_dispFreq;
+uniform float u_dispSpeed;
+uniform float u_explodeAmt;
+uniform float u_shardSpin;
+uniform float u_burstPulse;
 varying vec3 v_normal;
 varying vec3 v_view;
 varying vec2 v_uv;
+varying float v_dispHighlight;
+varying float v_shardMix;
+
+mat3 rotAxisAngle(vec3 axis, float angle) {
+  axis = normalize(axis);
+  float s = sin(angle);
+  float c = cos(angle);
+  float oc = 1.0 - c;
+  return mat3(
+    oc * axis.x * axis.x + c, oc * axis.x * axis.y + axis.z * s, oc * axis.z * axis.x - axis.y * s,
+    oc * axis.x * axis.y - axis.z * s, oc * axis.y * axis.y + c, oc * axis.y * axis.z + axis.x * s,
+    oc * axis.z * axis.x + axis.y * s, oc * axis.y * axis.z - axis.x * s, oc * axis.z * axis.z + c
+  );
+}
+
 void main() {
-  vec4 mvPos = u_modelView * vec4(a_position, 1.0);
+  vec3 n = normalize(a_normal);
+  vec3 p = a_position;
+  v_shardMix = 0.0;
+
+  if (u_effectMode > 0.5) {
+    float t = u_time * u_dispSpeed;
+    float f = u_dispFreq;
+    float w1 = sin(dot(p, vec3(3.1, 2.4, 1.7)) * f + t);
+    float w2 = sin(p.x * f * 4.2 + p.y * f * 3.1 + t * 1.3);
+    float w3 = sin(p.y * f * 3.6 - p.z * f * 4.4 + t * 0.85);
+    float w4 = cos(p.z * f * 3.3 + p.x * f * 2.8 - t * 1.1);
+    float blend = (w1 + w2 + w3 + w4) * 0.25;
+    p += n * blend * u_dispAmp;
+    v_dispHighlight = clamp(blend * 0.5 + 0.5, 0.0, 1.0);
+  } else {
+    vec3 c = a_centroid;
+    vec3 rel = p - c;
+    vec3 axis = normalize(vec3(
+      sin(a_triRnd * 17.413),
+      cos(a_triRnd * 22.91),
+      sin(a_triRnd * 9.173)
+    ));
+    float ang = u_time * u_shardSpin * (0.35 + fract(a_triRnd * 43.17)) * u_explodeAmt;
+    mat3 R = rotAxisAngle(axis, ang);
+    vec3 relR = R * rel;
+    vec3 nR = R * n;
+    float pulse = sin(u_time * 2.2 + a_triRnd * 40.0);
+    float burst = u_explodeAmt * (5.5 + u_burstPulse * 3.0 * pulse);
+    p = c + a_burstDir * burst + relR;
+    n = nR;
+    v_dispHighlight = 0.5 + 0.5 * fract(pulse * 0.5 + a_triRnd);
+    v_shardMix = u_explodeAmt;
+  }
+
+  vec4 mvPos = u_modelView * vec4(p, 1.0);
   v_view = -mvPos.xyz;
-  v_normal = u_normalMatrix * a_normal;
+  v_normal = u_normalMatrix * n;
   v_uv = a_uv;
-  gl_Position = u_mvp * vec4(a_position, 1.0);
+  gl_Position = u_mvp * vec4(p, 1.0);
 }
 </script>
 
@@ -360,21 +470,50 @@ precision mediump float;
 varying vec3 v_normal;
 varying vec3 v_view;
 varying vec2 v_uv;
+varying float v_dispHighlight;
+varying float v_shardMix;
 uniform float u_time;
+uniform float u_effectMode;
+uniform float u_dispAmp;
+uniform float u_dispCrest;
 void main() {
   vec3 N = normalize(v_normal);
   vec3 V = normalize(v_view);
   vec3 L = normalize(vec3(0.35, 0.85, 0.4));
-  float ndl = max(dot(N, L), 0.0);
-  float wrap = ndl * 0.65 + 0.35;
-  vec3 base = vec3(0.42, 0.48, 0.44);
-  vec3 shadow = vec3(0.12, 0.22, 0.18);
-  vec3 col = mix(shadow, base, wrap);
-  float rim = pow(1.0 - max(dot(N, V), 0.0), 2.2);
-  col += vec3(0.25, 0.55, 0.38) * rim * 0.45;
-  col += vec3(0.15, 0.08, 0.22) * (1.0 - wrap) * 0.35;
-  float pulse = 0.5 + 0.5 * sin(u_time * 1.3 + v_uv.y * 6.28);
-  col += vec3(0.08, 0.2, 0.12) * pulse * 0.08;
+  vec3 col;
+  if (u_effectMode > 0.5) {
+    float ndl = max(dot(N, L), 0.0);
+    float wrap = ndl * 0.65 + 0.35;
+    vec3 base = vec3(0.38, 0.42, 0.40);
+    vec3 shadow = vec3(0.1, 0.14, 0.12);
+    col = mix(shadow, base, wrap);
+    float rim = pow(1.0 - max(dot(N, V), 0.0), 2.2);
+    col += vec3(0.22, 0.48, 0.34) * rim * 0.4;
+    col += vec3(0.12, 0.06, 0.18) * (1.0 - wrap) * 0.4;
+    float grain = fract(sin(dot(v_uv * 400.0, vec2(12.9898, 78.233))) * 43758.5453);
+    col += (grain - 0.5) * 0.04;
+    float pulse = 0.5 + 0.5 * sin(u_time * 1.3 + v_uv.y * 6.28);
+    col += vec3(0.08, 0.2, 0.12) * pulse * 0.08;
+    col += vec3(0.35, 0.65, 0.45) * v_dispHighlight * u_dispCrest * u_dispAmp * 12.0;
+  } else {
+    float nd = max(dot(N, L), 0.0);
+    float wrap = pow(nd, 0.42) * 0.72 + 0.28;
+    vec3 baseCol = vec3(0.30, 0.36, 0.33);
+    vec3 sh = vec3(0.07, 0.11, 0.10);
+    col = mix(sh, baseCol, wrap);
+    float nv = max(dot(N, V), 0.0);
+    float fres = pow(1.0 - nv, 1.35);
+    float rimWide = smoothstep(0.15, 0.95, 1.0 - nv);
+    vec3 bio = vec3(0.10, 0.38, 0.30);
+    col += bio * fres * (0.35 + v_shardMix * 0.65);
+    col += vec3(0.18, 0.48, 0.38) * rimWide * 0.42 * (0.15 + v_shardMix * 0.85);
+    float sss = pow(1.0 - nd, 1.2) * 0.35;
+    col += vec3(0.12, 0.32, 0.24) * sss * (0.2 + v_shardMix);
+    float g = fract(sin(dot(v_uv * 90.0, vec2(12.9898, 78.233))) * 43758.5453);
+    col += (g - 0.5) * 0.022;
+    col = mix(col, col * vec3(1.04, 1.1, 1.06), v_shardMix * 0.18);
+    col = pow(col, vec3(0.96));
+  }
   gl_FragColor = vec4(col, 1.0);
 }
 </script>
@@ -609,6 +748,98 @@ void main() {
         };
     }
 
+    function triRandom(triIdx) {
+        const x = Math.sin(triIdx * 12.9898 + 78.233) * 43758.5453;
+        return x - Math.floor(x);
+    }
+
+    /** One indexed triangle list → non-indexed (3 verts per face) for independent triangle motion. */
+    function expandIndexedMesh(geo) {
+        const positions = geo.positions;
+        const normals = geo.normals;
+        const uvs = geo.uvs;
+        const indices = geo.indices;
+        const min = geo.min;
+        const max = geo.max;
+        const triCount = indices.length / 3;
+        const vtxCount = triCount * 3;
+        const posOut = new Float32Array(vtxCount * 3);
+        const norOut = new Float32Array(vtxCount * 3);
+        const uvOut = uvs ? new Float32Array(vtxCount * 2) : null;
+        const centOut = new Float32Array(vtxCount * 3);
+        const burstOut = new Float32Array(vtxCount * 3);
+        const rndOut = new Float32Array(vtxCount);
+
+        const cx = (min[0] + max[0]) * 0.5;
+        const cy = (min[1] + max[1]) * 0.5;
+        const cz = (min[2] + max[2]) * 0.5;
+
+        for (let t = 0; t < triCount; t++) {
+            const vi0 = indices[t * 3];
+            const vi1 = indices[t * 3 + 1];
+            const vi2 = indices[t * 3 + 2];
+            const i0 = vi0 * 3;
+            const i1 = vi1 * 3;
+            const i2 = vi2 * 3;
+            const p0 = [positions[i0], positions[i0 + 1], positions[i0 + 2]];
+            const p1 = [positions[i1], positions[i1 + 1], positions[i1 + 2]];
+            const p2 = [positions[i2], positions[i2 + 1], positions[i2 + 2]];
+            const c = [
+                (p0[0] + p1[0] + p2[0]) / 3,
+                (p0[1] + p1[1] + p2[1]) / 3,
+                (p0[2] + p1[2] + p2[2]) / 3
+            ];
+            let bx = c[0] - cx;
+            let by = c[1] - cy;
+            let bz = c[2] - cz;
+            let blen = Math.hypot(bx, by, bz);
+            if (blen < 1e-5) {
+                const e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+                const e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+                bx = e1[1] * e2[2] - e1[2] * e2[1];
+                by = e1[2] * e2[0] - e1[0] * e2[2];
+                bz = e1[0] * e2[1] - e1[1] * e2[0];
+                blen = Math.hypot(bx, by, bz) || 1;
+            }
+            bx /= blen;
+            by /= blen;
+            bz /= blen;
+            const rnd = triRandom(t);
+
+            const vis = [vi0, vi1, vi2];
+            for (let k = 0; k < 3; k++) {
+                const vi = vis[k];
+                const i3 = vi * 3;
+                const o = t * 3 + k;
+                posOut[o * 3] = positions[i3];
+                posOut[o * 3 + 1] = positions[i3 + 1];
+                posOut[o * 3 + 2] = positions[i3 + 2];
+                if (normals) {
+                    norOut[o * 3] = normals[i3];
+                    norOut[o * 3 + 1] = normals[i3 + 1];
+                    norOut[o * 3 + 2] = normals[i3 + 2];
+                } else {
+                    norOut[o * 3] = bx;
+                    norOut[o * 3 + 1] = by;
+                    norOut[o * 3 + 2] = bz;
+                }
+                if (uvOut) {
+                    const i2 = vi * 2;
+                    uvOut[o * 2] = uvs[i2];
+                    uvOut[o * 2 + 1] = uvs[i2 + 1];
+                }
+                centOut[o * 3] = c[0];
+                centOut[o * 3 + 1] = c[1];
+                centOut[o * 3 + 2] = c[2];
+                burstOut[o * 3] = bx;
+                burstOut[o * 3 + 1] = by;
+                burstOut[o * 3 + 2] = bz;
+                rndOut[o] = rnd;
+            }
+        }
+        return { posOut, norOut, uvOut, centOut, burstOut, rndOut, vertexCount: vtxCount };
+    }
+
     function getSceneDrawables(gltf) {
         const scene = gltf.scenes[gltf.scene !== undefined ? gltf.scene : 0];
         const out = [];
@@ -696,18 +927,31 @@ void main() {
     const uBgHue = gl.getUniformLocation(bgProg, "u_colorShift");
     const uBgOrbit = gl.getUniformLocation(bgProg, "u_orbitSpeed");
     const uBgDrift = gl.getUniformLocation(bgProg, "u_driftSpeed");
+    const uBgTentBack = gl.getUniformLocation(bgProg, "u_tentacleBack");
+    const uBgTentLift = gl.getUniformLocation(bgProg, "u_tentacleLift");
+    const uBgTentAmt = gl.getUniformLocation(bgProg, "u_tentacleBackAmt");
 
     const mPos = gl.getAttribLocation(modelProg, "a_position");
     const mNor = gl.getAttribLocation(modelProg, "a_normal");
     const mUv = gl.getAttribLocation(modelProg, "a_uv");
+    const mCent = gl.getAttribLocation(modelProg, "a_centroid");
+    const mBurst = gl.getAttribLocation(modelProg, "a_burstDir");
+    const mTriRnd = gl.getAttribLocation(modelProg, "a_triRnd");
     const uMvp = gl.getUniformLocation(modelProg, "u_mvp");
     const uMv = gl.getUniformLocation(modelProg, "u_modelView");
     const uNorm = gl.getUniformLocation(modelProg, "u_normalMatrix");
     const uModelTime = gl.getUniformLocation(modelProg, "u_time");
+    const uDispAmp = gl.getUniformLocation(modelProg, "u_dispAmp");
+    const uDispFreq = gl.getUniformLocation(modelProg, "u_dispFreq");
+    const uDispSpeed = gl.getUniformLocation(modelProg, "u_dispSpeed");
+    const uDispCrest = gl.getUniformLocation(modelProg, "u_dispCrest");
+    const uEffectMode = gl.getUniformLocation(modelProg, "u_effectMode");
+    const uExplodeAmt = gl.getUniformLocation(modelProg, "u_explodeAmt");
+    const uShardSpin = gl.getUniformLocation(modelProg, "u_shardSpin");
+    const uBurstPulse = gl.getUniformLocation(modelProg, "u_burstPulse");
 
     let mesh = null;
-    let indexType = gl.UNSIGNED_SHORT;
-    let indexCount = 0;
+    let vertexCount = 0;
     let worldCenter = [0, 0, 0];
     let baseRadius = 1;
     let camDistMul = 1.35;
@@ -726,9 +970,230 @@ void main() {
         quality: 0.45,
         modelScale: 1.0,
         modelYaw: 0.0,
-        camDist: 1.0
+        camDist: 2.7,
+        dispAmp: 0.04,
+        dispFreq: 3.5,
+        dispSpeed: 1.2,
+        dispCrest: 1.0,
+        effectMode: "shards",
+        explodeAmt: 0,
+        shardSpin: 0.9,
+        burstPulse: 0.25
     };
     let params = { ...defaults };
+
+    const EASE_NAMES = ["cubicInOut", "quadInOut", "sineInOut", "quartInOut"];
+    const easeFns = {
+        cubicInOut(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        },
+        quadInOut(t) {
+            return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        },
+        sineInOut(t) {
+            return -(Math.cos(Math.PI * t) - 1) / 2;
+        },
+        quartInOut(t) {
+            return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
+        }
+    };
+
+    function randRange(a, b) {
+        return a + Math.random() * (b - a);
+    }
+
+    function randDur() {
+        return randRange(1, 3);
+    }
+
+    function pickEase() {
+        return EASE_NAMES[(Math.random() * EASE_NAMES.length) | 0];
+    }
+
+    /** Robert Penner–style; t in [0,1], starts at 0, ends at 1 (elastic overshoot near end). */
+    function easeInElastic(t) {
+        if (t <= 0) return 0;
+        if (t >= 1) return 1;
+        const c4 = (2 * Math.PI) / 3;
+        return -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * c4);
+    }
+
+    /**
+     * Burst phase mu in [0,1]: spin always starts at 0, rises with easeInElastic, falls to 0 (mirrored elastic).
+     */
+    function shardSpinEnvelopeElastic(mu) {
+        const u = Math.min(1, Math.max(0, mu));
+        let v;
+        if (u <= 0.5) {
+            v = easeInElastic(u * 2);
+        } else {
+            const t = (u - 0.5) * 2;
+            v = 1 - easeInElastic(t);
+        }
+        return Math.min(1, Math.max(0, v));
+    }
+
+    /** Burst amount envelope: 0 at start & end of burst; slow ease-in and ease-out (symmetric power curve). */
+    const BURST_AMOUNT_SLOW_POWER = 7;
+
+    function burstAmountEnvelope(mu) {
+        const u = Math.min(1, Math.max(0, mu));
+        if (u <= 0.5) {
+            return Math.pow(u * 2, BURST_AMOUNT_SLOW_POWER);
+        }
+        return Math.pow(2 * (1 - u), BURST_AMOUNT_SLOW_POWER);
+    }
+
+    function makeChannel(minV, maxV, start) {
+        const now = performance.now() / 1000;
+        const ch = {
+            minV,
+            maxV,
+            val: start,
+            from: start,
+            t0: now,
+            dur: randDur(),
+            ease: pickEase()
+        };
+        ch.to = randRange(minV, maxV);
+        return ch;
+    }
+
+    function randomTarget(ch) {
+        return randRange(ch.minV, ch.maxV);
+    }
+
+    function advanceChannel(ch, now, forceRetarget) {
+        if (forceRetarget) {
+            ch.from = ch.val;
+            ch.to = randomTarget(ch);
+            ch.t0 = now;
+            ch.dur = randDur();
+            ch.ease = pickEase();
+        } else {
+            let p = (now - ch.t0) / ch.dur;
+            if (p >= 1) {
+                ch.from = ch.to;
+                ch.to = randomTarget(ch);
+                ch.t0 = now;
+                ch.dur = randDur();
+                ch.ease = pickEase();
+            }
+        }
+        const p = Math.min(1, Math.max(0, (now - ch.t0) / ch.dur));
+        const fn = easeFns[ch.ease] || easeFns.cubicInOut;
+        ch.val = ch.from + (ch.to - ch.from) * fn(p);
+        return ch.val;
+    }
+
+    const animChannels = {
+        burstPulse: makeChannel(0.05, 1, 0.25),
+        explodeAmt: makeChannel(0, 1, 0),
+        tentacleCount: makeChannel(4, 12, 8),
+        orbitSpeed: makeChannel(0.04, 0.78, 0.12),
+        dispFreq: makeChannel(0.5, 12, 3.5)
+    };
+
+    const MASTER_HOLD_SEC = 3;
+    let masterStartSec = performance.now() / 1000;
+    let masterBurstDur = randDur();
+    let masterTotalDur = MASTER_HOLD_SEC + masterBurstDur;
+    const SHARD_SPIN_PEAK = 2.8;
+
+    let live = {
+        shardSpin: 0,
+        burstPulse: 0.25,
+        explodeAmt: 0,
+        tentacleCount: 8,
+        orbitSpeed: 0.12,
+        dispFreq: 3.5
+    };
+
+    function resetAutomationFromDefaults() {
+        const now = performance.now() / 1000;
+        masterStartSec = now;
+        masterBurstDur = randDur();
+        masterTotalDur = MASTER_HOLD_SEC + masterBurstDur;
+        for (const k of Object.keys(animChannels)) {
+            const ch = animChannels[k];
+            const v0 = defaults[k];
+            ch.val = ch.from = v0;
+            ch.to = randomTarget(ch);
+            ch.t0 = now;
+            ch.dur = randDur();
+            ch.ease = pickEase();
+        }
+    }
+
+    function updateLiveParams(nowSec) {
+        let elapsed = nowSec - masterStartSec;
+        let cycleReset = false;
+        if (elapsed >= masterTotalDur) {
+            masterStartSec = nowSec;
+            masterBurstDur = randDur();
+            masterTotalDur = MASTER_HOLD_SEC + masterBurstDur;
+            elapsed = 0;
+            cycleReset = true;
+        }
+
+        const inHold = elapsed < MASTER_HOLD_SEC;
+        let burstMu = 0;
+
+        if (inHold) {
+            live.shardSpin = 0;
+            live.explodeAmt = 0;
+            params.modelYaw *= 0.9;
+            if (Math.abs(params.modelYaw) < 0.02) {
+                params.modelYaw = 0;
+            }
+            for (const k of Object.keys(animChannels)) {
+                const ch = animChannels[k];
+                if (cycleReset) {
+                    advanceChannel(ch, nowSec, true);
+                }
+                live[k] = ch.val;
+            }
+        } else {
+            const burstElapsed = elapsed - MASTER_HOLD_SEC;
+            const mu = burstElapsed / masterBurstDur;
+            burstMu = mu;
+            live.shardSpin = shardSpinEnvelopeElastic(mu) * SHARD_SPIN_PEAK;
+            for (const k of Object.keys(animChannels)) {
+                advanceChannel(animChannels[k], nowSec, cycleReset);
+                live[k] = animChannels[k].val;
+            }
+        }
+
+        params.shardSpin = live.shardSpin;
+        params.burstPulse = live.burstPulse;
+        params.explodeAmt = inHold
+            ? 0
+            : live.explodeAmt * burstAmountEnvelope(burstMu);
+        params.tentacleCount = Math.round(live.tentacleCount);
+        params.tentacleCount = Math.min(12, Math.max(4, params.tentacleCount));
+        params.orbitSpeed = live.orbitSpeed;
+        params.dispFreq = live.dispFreq;
+
+        const sync = [
+            ["shardSpin", 2],
+            ["burstPulse", 2],
+            ["explodeAmt", 2],
+            ["tentacleCount", 0],
+            ["orbitSpeed", 2],
+            ["dispFreq", 2],
+            ["modelYaw", 2]
+        ];
+        for (let i = 0; i < sync.length; i++) {
+            const id = sync[i][0];
+            const dec = sync[i][1];
+            const el = document.getElementById(id);
+            const disp = document.getElementById(id + "Value");
+            if (el) {
+                el.value = params[id];
+                if (disp) disp.textContent = dec ? Number(params[id]).toFixed(dec) : String(params[id]);
+            }
+        }
+    }
 
     function setupControls() {
         const bind = (id, key, intVal) => {
@@ -754,9 +1219,32 @@ void main() {
         bind("modelScale", "modelScale");
         bind("modelYaw", "modelYaw");
         bind("camDist", "camDist");
+        bind("dispAmp", "dispAmp");
+        bind("dispFreq", "dispFreq");
+        bind("dispSpeed", "dispSpeed");
+        bind("dispCrest", "dispCrest");
+        bind("explodeAmt", "explodeAmt");
+        bind("shardSpin", "shardSpin");
+        bind("burstPulse", "burstPulse");
+
+        function syncEffectPanels() {
+            const shards = params.effectMode === "shards";
+            document.querySelectorAll("#shardControls, #shardControls2, #shardControls3").forEach((el) => {
+                el.style.display = shards ? "block" : "none";
+            });
+            document.querySelectorAll("#waveControls, #waveControls2, #waveControls3, #waveControls4").forEach((el) => {
+                el.style.display = shards ? "none" : "block";
+            });
+        }
+        document.getElementById("effectMode").addEventListener("change", (e) => {
+            params.effectMode = e.target.value;
+            syncEffectPanels();
+        });
+        syncEffectPanels();
 
         document.getElementById("resetBtn").addEventListener("click", () => {
             params = { ...defaults };
+            resetAutomationFromDefaults();
             Object.keys(defaults).forEach((key) => {
                 const input = document.getElementById(key);
                 const display = document.getElementById(key + "Value");
@@ -769,9 +1257,14 @@ void main() {
                     }
                 }
             });
+            document.getElementById("effectMode").value = params.effectMode;
+            syncEffectPanels();
         });
     }
     setupControls();
+
+    resetAutomationFromDefaults();
+    updateLiveParams(performance.now() / 1000);
 
     const toggleBtn = document.getElementById("toggleControls");
     const controlsPanel = document.getElementById("controls");
@@ -852,46 +1345,49 @@ void main() {
             baseRadius = diag * 0.5;
             camDistMul = 1.6;
 
+            const exp = expandIndexedMesh(geo);
+
             const posBuf = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
-            gl.bufferData(gl.ARRAY_BUFFER, geo.positions, gl.STATIC_DRAW);
+            gl.bufferData(gl.ARRAY_BUFFER, exp.posOut, gl.STATIC_DRAW);
 
-            let nbuf = null;
-            if (geo.normals) {
-                nbuf = gl.createBuffer();
-                gl.bindBuffer(gl.ARRAY_BUFFER, nbuf);
-                gl.bufferData(gl.ARRAY_BUFFER, geo.normals, gl.STATIC_DRAW);
-            }
+            const nbuf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, nbuf);
+            gl.bufferData(gl.ARRAY_BUFFER, exp.norOut, gl.STATIC_DRAW);
 
             let uvbuf = null;
-            if (geo.uvs) {
+            if (exp.uvOut) {
                 uvbuf = gl.createBuffer();
                 gl.bindBuffer(gl.ARRAY_BUFFER, uvbuf);
-                gl.bufferData(gl.ARRAY_BUFFER, geo.uvs, gl.STATIC_DRAW);
+                gl.bufferData(gl.ARRAY_BUFFER, exp.uvOut, gl.STATIC_DRAW);
             }
 
-            const ibuf = gl.createBuffer();
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibuf);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geo.indices, gl.STATIC_DRAW);
+            const centBuf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, centBuf);
+            gl.bufferData(gl.ARRAY_BUFFER, exp.centOut, gl.STATIC_DRAW);
 
-            indexCount = geo.indices.length;
-            indexType = geo.indexType === 5125 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
-            if (indexType === gl.UNSIGNED_INT) {
-                const ext = gl.getExtension("OES_element_index_uint");
-                if (!ext) throw new Error("UINT32 indices need OES_element_index_uint");
-            }
+            const burstBuf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, burstBuf);
+            gl.bufferData(gl.ARRAY_BUFFER, exp.burstOut, gl.STATIC_DRAW);
+
+            const rndBuf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, rndBuf);
+            gl.bufferData(gl.ARRAY_BUFFER, exp.rndOut, gl.STATIC_DRAW);
+
+            vertexCount = exp.vertexCount;
 
             mesh = {
                 posBuf,
                 nbuf,
                 uvbuf,
-                ibuf,
+                centBuf,
+                burstBuf,
+                rndBuf,
                 modelBase,
-                hasNormals: !!geo.normals,
-                hasUv: !!geo.uvs
+                hasUv: !!exp.uvOut
             };
 
-            statusEl.textContent = "Embedded GLB — " + indexCount / 3 + " tris";
+            statusEl.textContent = "Embedded GLB — " + vertexCount / 3 + " tris (expanded)";
         })
         .catch((e) => {
             console.error(e);
@@ -902,6 +1398,7 @@ void main() {
     let startTime = Date.now();
 
     function drawBackground(w, h, time) {
+        updateLiveParams(performance.now() / 1000);
         gl.useProgram(bgProg);
         gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
         gl.enableVertexAttribArray(bgPosLoc);
@@ -918,6 +1415,19 @@ void main() {
         gl.uniform1f(uBgHue, params.colorShift);
         gl.uniform1f(uBgOrbit, params.orbitSpeed);
         gl.uniform1f(uBgDrift, params.driftSpeed);
+        const orb = time * params.orbitSpeed;
+        const camR = 4.1;
+        const rox = camR * Math.cos(orb);
+        const roy = 0.35 + 0.25 * Math.sin(time * 0.2);
+        const roz = camR * Math.sin(orb);
+        const vx = rox;
+        const vy = roy - 0.1;
+        const vz = roz;
+        const vlen = Math.hypot(vx, vy, vz) || 1;
+        gl.uniform3f(uBgTentBack, -vx / vlen, -vy / vlen, -vz / vlen);
+        const lift = 0.12 + 0.72 * (0.5 + 0.5 * Math.sin(time * 0.42 + 0.8));
+        gl.uniform1f(uBgTentLift, lift);
+        gl.uniform1f(uBgTentAmt, 2.15);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
@@ -949,14 +1459,9 @@ void main() {
         gl.enableVertexAttribArray(mPos);
         gl.vertexAttribPointer(mPos, 3, gl.FLOAT, false, 0, 0);
 
-        if (mesh.hasNormals && mesh.nbuf) {
-            gl.bindBuffer(gl.ARRAY_BUFFER, mesh.nbuf);
-            gl.enableVertexAttribArray(mNor);
-            gl.vertexAttribPointer(mNor, 3, gl.FLOAT, false, 0, 0);
-        } else {
-            gl.disableVertexAttribArray(mNor);
-            gl.vertexAttrib3f(mNor, 0, 1, 0);
-        }
+        gl.bindBuffer(gl.ARRAY_BUFFER, mesh.nbuf);
+        gl.enableVertexAttribArray(mNor);
+        gl.vertexAttribPointer(mNor, 3, gl.FLOAT, false, 0, 0);
 
         if (mesh.hasUv && mesh.uvbuf) {
             gl.bindBuffer(gl.ARRAY_BUFFER, mesh.uvbuf);
@@ -967,12 +1472,31 @@ void main() {
             gl.vertexAttrib2f(mUv, 0, 0);
         }
 
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.ibuf);
+        gl.bindBuffer(gl.ARRAY_BUFFER, mesh.centBuf);
+        gl.enableVertexAttribArray(mCent);
+        gl.vertexAttribPointer(mCent, 3, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, mesh.burstBuf);
+        gl.enableVertexAttribArray(mBurst);
+        gl.vertexAttribPointer(mBurst, 3, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, mesh.rndBuf);
+        gl.enableVertexAttribArray(mTriRnd);
+        gl.vertexAttribPointer(mTriRnd, 1, gl.FLOAT, false, 0, 0);
+
         gl.uniformMatrix4fv(uMvp, false, mvp);
         gl.uniformMatrix4fv(uMv, false, modelView);
         gl.uniformMatrix3fv(uNorm, false, normMat);
         gl.uniform1f(uModelTime, time);
-        gl.drawElements(gl.TRIANGLES, indexCount, indexType, 0);
+        gl.uniform1f(uEffectMode, params.effectMode === "waves" ? 1.0 : 0.0);
+        gl.uniform1f(uDispAmp, params.dispAmp);
+        gl.uniform1f(uDispFreq, params.dispFreq);
+        gl.uniform1f(uDispSpeed, params.dispSpeed);
+        gl.uniform1f(uDispCrest, params.dispCrest);
+        gl.uniform1f(uExplodeAmt, params.explodeAmt);
+        gl.uniform1f(uShardSpin, params.shardSpin);
+        gl.uniform1f(uBurstPulse, params.burstPulse);
+        gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
     }
 
     function render() {
