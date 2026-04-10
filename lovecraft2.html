@@ -87,6 +87,7 @@
     <p>Eldritch Rift II — embedded GLB over the void</p>
     <div id="status">Unpacking embedded model…</div>
     <canvas>WebGL required</canvas>
+    <p style="font-size:12px;color:#5a7068;margin:6px 0 0 12px;max-width:52rem;line-height:1.4;">Pointer: multifractal pan / zoom / Julia drift + layer rotations; camera orbit around model; void hue, glow, burst; wheel — distance; click — color-speed flash.</p>
 
     <div id="controls" class="controls-panel">
         <h3>Scene</h3>
@@ -238,6 +239,10 @@ uniform float u_driftSpeed;
 uniform vec3 u_tentacleBack;
 uniform float u_tentacleLift;
 uniform float u_tentacleBackAmt;
+/** 0 = model intact (tentacles off); 1 = full burst — drives visibility + reach. */
+uniform float u_tentacleReveal;
+uniform sampler2D u_fractalBg;
+uniform float u_fractalSkyMix;
 varying vec2 v_uv;
 #define MAX_STEPS 72
 #define MAX_DIST 28.0
@@ -285,9 +290,14 @@ float sceneSDF(vec3 p0) {
   float ang = atan(p.y, p.x);
   float rPulse = u_riftSize * (1.0 + 0.12 * sin(ang * 6.0 + t * 2.0));
   float eye = sdSphere(p, rPulse);
+  float tr = clamp(u_tentacleReveal, 0.0, 1.0);
+  float tr2 = tr * tr;
+  float tentHide = (1.0 - tr) * 88.0;
+  float reach = mix(0.22, 1.0, tr2);
+  float yCap = 0.38 + 3.42 * tr2;
   vec3 tentRoot = u_tentacleBack * u_tentacleBackAmt + vec3(0.0, u_tentacleLift, 0.0);
   vec3 pt = p - tentRoot;
-  float helix = tw * pt.y * 2.5;
+  float helix = tw * pt.y * 2.5 * mix(0.15, 1.0, tr2);
   pt.xz *= rot2(helix + t * 0.15);
   float d = eye;
   int count = u_tentacleCount;
@@ -297,20 +307,21 @@ float sceneSDF(vec3 p0) {
     float a = (2.0 * PI * fi) / float(count);
     vec3 q = pt;
     q.xz *= rot2(a + t * 0.08);
-    q.x -= 1.65 + 0.08 * sin(t + fi);
-    float wave = 0.22 * sin(q.y * 3.2 + fi * 1.7 + t * 1.5);
+    q.x -= (1.65 + 0.08 * sin(t + fi)) * reach;
+    float wave = 0.22 * sin(q.y * 3.2 + fi * 1.7 + t * 1.5) * tr;
     q.z += wave;
-    q.x += 0.06 * sin(q.y * 5.0 + t);
-    float rad = 0.11 + 0.035 * sin(q.y * 7.0 + t * 2.5 + fi);
+    q.x += 0.06 * sin(q.y * 5.0 + t) * tr;
+    float rad = (0.11 + 0.035 * sin(q.y * 7.0 + t * 2.5 + fi)) * mix(0.18, 1.0, max(tr, 0.001));
     float cyl = length(q.xz) - rad;
-    float cap = max(cyl, abs(q.y) - 3.8 - 0.15 * sin(q.x * 4.0 + t));
-    d = smin(d, cap, m * 1.15);
+    float cap = max(cyl, abs(q.y) - yCap - 0.15 * sin(q.x * 4.0 + t));
+    d = smin(d, cap + tentHide, m * 1.15);
   }
   vec3 ps = (p - tentRoot * 0.85) * vec3(1.1, 1.4, 1.1);
   ps.xz *= rot2(t * 0.2);
-  float tend = length(vec2(length(ps.xz) - 0.35, ps.y * 0.9)) - 0.04;
-  tend = max(tend - 0.02 * sin(ps.y * 12.0 + t * 3.0), abs(ps.y) - 2.2);
-  d = smin(d, tend, m * 0.6);
+  float tend = length(vec2(length(ps.xz) - 0.35 * reach, ps.y * 0.9)) - 0.04;
+  float ylim = mix(0.22, 2.2, tr2);
+  tend = max(tend - 0.02 * sin(ps.y * 12.0 + t * 3.0), abs(ps.y) - ylim);
+  d = smin(d, tend + tentHide, m * 0.6);
   return d;
 }
 vec3 calcNormal(vec3 p) {
@@ -339,7 +350,7 @@ vec3 eldritchColor(vec3 p, vec3 n, float glowAmt, float marchT) {
   base = mix(base, deep * 1.2, fogMix * 0.5);
   return base;
 }
-vec4 raymarch(vec3 ro, vec3 rd) {
+vec4 raymarch(vec3 ro, vec3 rd, vec2 fuv) {
   float t = 0.0;
   float glow = 0.0;
   for (int i = 0; i < MAX_STEPS; i++) {
@@ -353,12 +364,13 @@ vec4 raymarch(vec3 ro, vec3 rd) {
       return vec4(eldritchColor(p, n, glow, t), t);
     }
   }
+  vec3 frac = texture2D(u_fractalBg, fuv).rgb;
   vec2 sn = rd.xy * 40.0 + u_time * 0.02;
   float stars = pow(noise(sn), 12.0) * 0.85;
   float neb = fbm(rd.xz * 3.0 + u_time * u_driftSpeed * 0.1);
-  vec3 sky = vec3(0.01, 0.015, 0.04);
-  sky += vec3(0.08, 0.03, 0.12) * neb * 0.35;
-  sky += vec3(0.35, 0.5, 0.4) * stars;
+  vec3 sky = mix(vec3(0.01, 0.015, 0.04), frac, clamp(u_fractalSkyMix, 0.0, 1.0));
+  sky += vec3(0.06, 0.02, 0.1) * neb * 0.28 * (1.0 - u_fractalSkyMix * 0.5);
+  sky += vec3(0.3, 0.45, 0.38) * stars * (1.0 - u_fractalSkyMix * 0.35);
   vec3 col = sky + vec3(0.15, 0.55, 0.35) * glow * u_glowIntensity * 0.12;
   return vec4(col, MAX_DIST);
 }
@@ -373,7 +385,7 @@ void main() {
   vec3 r = normalize(cross(vec3(0.0, 1.0, 0.0), f));
   vec3 u = cross(f, r);
   vec3 rd = normalize(f + uv.x * r + uv.y * u);
-  vec4 hit = raymarch(ro, rd);
+  vec4 hit = raymarch(ro, rd, v_uv);
   vec3 col = hit.rgb;
   float vig = 1.0 - length(v_uv - 0.5) * 1.15;
   col *= vig;
@@ -383,6 +395,304 @@ void main() {
   col = pow(col, vec3(0.95));
   gl_FragColor = vec4(col, 1.0);
 }
+</script>
+
+    <script type="x-shader/x-fragment" id="mf-fs">
+  precision mediump float;
+  
+  uniform vec2 u_resolution;
+  uniform vec2 u_center;
+  uniform float u_zoom;
+  uniform int u_maxIterations;
+  uniform float u_rotation;
+  uniform float u_escapeRadius;
+  uniform float u_colorOffset;
+  uniform float u_colorSpeed;
+  uniform float u_colorIntensity;
+  uniform int u_juliaMode;
+  uniform vec2 u_juliaC;
+  uniform int u_colorPalette;
+  uniform vec2 u_juliaC2; // Second fractal layer Julia C
+  uniform vec2 u_juliaC3; // Third fractal layer Julia C
+  uniform float u_greenRotation; // Rotation for green fractal layer
+  uniform float u_redRotation; // Rotation for red fractal layer
+  uniform float u_time; // Time for multifractal animation
+  
+  varying vec2 v_uv;
+  
+  // Color palette functions
+  vec3 paletteRainbow(float t) {
+    return vec3(
+      0.5 + 0.5 * cos(3.0 + t * u_colorSpeed + u_colorOffset),
+      0.5 + 0.5 * cos(2.0 + t * u_colorSpeed + u_colorOffset),
+      0.5 + 0.5 * cos(1.0 + t * u_colorSpeed + u_colorOffset)
+    );
+  }
+  
+  vec3 paletteFire(float t) {
+    return vec3(
+      t * u_colorIntensity,
+      t * t * u_colorIntensity * 0.5,
+      t * t * t * u_colorIntensity * 0.1
+    );
+  }
+  
+  vec3 paletteOcean(float t) {
+    return vec3(
+      0.1 + 0.3 * sin(t * u_colorSpeed + u_colorOffset),
+      0.3 + 0.5 * sin(t * u_colorSpeed + u_colorOffset + 1.0),
+      0.7 + 0.3 * sin(t * u_colorSpeed + u_colorOffset + 2.0)
+    );
+  }
+  
+  vec3 paletteForest(float t) {
+    return vec3(
+      0.1 + 0.2 * sin(t * u_colorSpeed + u_colorOffset),
+      0.4 + 0.4 * sin(t * u_colorSpeed + u_colorOffset + 1.5),
+      0.2 + 0.2 * sin(t * u_colorSpeed + u_colorOffset + 0.5)
+    );
+  }
+  
+  vec3 paletteSunset(float t) {
+    return vec3(
+      0.8 + 0.2 * cos(t * u_colorSpeed + u_colorOffset),
+      0.4 + 0.3 * cos(t * u_colorSpeed + u_colorOffset + 1.0),
+      0.2 + 0.2 * cos(t * u_colorSpeed + u_colorOffset + 2.0)
+    );
+  }
+  
+  vec3 paletteMonochrome(float t) {
+    float gray = 0.5 + 0.5 * sin(t * u_colorSpeed + u_colorOffset);
+    return vec3(gray * u_colorIntensity);
+  }
+  
+  vec3 paletteGreen(float t) {
+    return vec3(
+      0.1 + 0.2 * sin(t * u_colorSpeed + u_colorOffset),
+      0.6 + 0.4 * sin(t * u_colorSpeed + u_colorOffset + 1.0),
+      0.2 + 0.3 * sin(t * u_colorSpeed + u_colorOffset + 0.5)
+    );
+  }
+  
+  vec3 paletteBlue(float t) {
+    return vec3(
+      0.1 + 0.2 * sin(t * u_colorSpeed + u_colorOffset),
+      0.2 + 0.3 * sin(t * u_colorSpeed + u_colorOffset + 1.0),
+      0.7 + 0.3 * sin(t * u_colorSpeed + u_colorOffset + 2.0)
+    );
+  }
+  
+  vec3 getColor(float t, int palette) {
+    if (palette == 0) return paletteRainbow(t);
+    else if (palette == 1) return paletteFire(t);
+    else if (palette == 2) return paletteOcean(t);
+    else if (palette == 3) return paletteForest(t);
+    else if (palette == 4) return paletteSunset(t);
+    else if (palette == 5) return paletteMonochrome(t);
+    else if (palette == 6) return paletteGreen(t);
+    else if (palette == 7) return paletteBlue(t);
+    else return paletteMonochrome(t);
+  }
+  
+  // Mandelbrot computation function for multifractal layers
+  float mandelbrotMultifractal(vec2 center, float zoom, float rotation, int maxIter) {
+    vec2 c = (v_uv - 0.5) * 2.0;
+    c.x *= u_resolution.x / u_resolution.y;
+    
+    // Apply rotation
+    float cosR = cos(rotation);
+    float sinR = sin(rotation);
+    c = vec2(c.x * cosR - c.y * sinR, c.x * sinR + c.y * cosR);
+    
+    // Apply zoom and center
+    c = c / zoom + center;
+    
+    vec2 z = vec2(0.0);
+    int iterations = 0;
+    
+    for (int i = 0; i < 256; i++) {
+      if (i >= maxIter) break;
+      
+      float x = (z.x * z.x - z.y * z.y) + c.x;
+      float y = (z.x * z.y * 2.0) + c.y;
+      z = vec2(x, y);
+      
+      if (dot(z, z) > 4.0) {
+        iterations = i;
+        break;
+      }
+    }
+    
+    if (iterations == maxIter) {
+      return 0.0;
+    }
+    
+    return float(iterations) / float(maxIter);
+  }
+  
+  // Compute fractal for given Julia C constant
+  // Returns: x = normalized iterations (0-1), y = 1.0 if inside set, 0.0 if outside
+  vec2 computeFractal(vec2 c, vec2 juliaConstant) {
+    vec2 z;
+    vec2 constant;
+    if (u_juliaMode == 1) {
+      z = c;
+      constant = juliaConstant;
+    } else {
+      z = vec2(0.0);
+      constant = c;
+    }
+    
+    int iterations = 0;
+    bool escaped = false;
+    
+    for (int i = 0; i < 256; i++) {
+      if (i >= u_maxIterations) break;
+      
+      float x = (z.x * z.x - z.y * z.y) + constant.x;
+      float y = (z.x * z.y * 2.0) + constant.y;
+      z = vec2(x, y);
+      
+      if (dot(z, z) > u_escapeRadius * u_escapeRadius) {
+        iterations = i;
+        escaped = true;
+        break;
+      }
+    }
+    
+    float t = float(iterations) / float(u_maxIterations);
+    float isInside = escaped ? 0.0 : 1.0; // 1.0 if inside set (didn't escape)
+    return vec2(t, isInside);
+  }
+  
+  void main() {
+    // Map pixel coordinates to complex plane
+    vec2 c = (v_uv - 0.5) * 2.0;
+    c.x *= u_resolution.x / u_resolution.y; // Aspect ratio correction
+    
+    // Apply rotation
+    float cosR = cos(u_rotation);
+    float sinR = sin(u_rotation);
+    c = vec2(c.x * cosR - c.y * sinR, c.x * sinR + c.y * cosR);
+    
+    // Apply zoom and center
+    c = c / u_zoom + u_center;
+    
+    // Apply rotation to red fractal layer (layer 1) - reverse direction
+    vec2 c1 = c;
+    float cosR1 = cos(u_redRotation);
+    float sinR1 = sin(u_redRotation);
+    c1 = vec2(c1.x * cosR1 - c1.y * sinR1, c1.x * sinR1 + c1.y * cosR1);
+    vec2 result1 = computeFractal(c1, u_juliaC);
+    
+    // Apply additional rotation to green fractal layer (layer 2)
+    vec2 c2 = c;
+    float cosR2 = cos(u_greenRotation);
+    float sinR2 = sin(u_greenRotation);
+    // Rotate around origin (0,0) which is the center after zoom/center transform
+    c2 = vec2(c2.x * cosR2 - c2.y * sinR2, c2.x * sinR2 + c2.y * cosR2);
+    vec2 result2 = computeFractal(c2, u_juliaC2);
+    
+    vec2 result3 = computeFractal(c, u_juliaC3);
+    
+    float t1 = result1.x;
+    float t2 = result2.x;
+    float t3 = result3.x;
+    float inside1 = result1.y;
+    float inside2 = result2.y;
+    float inside3 = result3.y;
+    
+    // Get colors for each layer
+    vec3 color1 = getColor(t1, u_colorPalette); // Main layer (Fire)
+    vec3 color2 = getColor(t2, 6); // Green palette
+    vec3 color3 = getColor(t3, 7); // Blue palette
+    
+    // Blend layers with opacity (only render outside the set)
+    vec3 finalColor = vec3(0.0); // Start with black background
+    
+    // Main layer (100% opacity)
+    if (inside1 < 0.5) {
+      finalColor += color1;
+    }
+    
+    // Second layer (33% opacity, green)
+    if (inside2 < 0.5) {
+      finalColor += color2 * 0.33;
+    }
+    
+    // Third layer (33% opacity, blue)
+    if (inside3 < 0.5) {
+      finalColor += color3 * 0.33;
+    }
+    
+    // Clamp to prevent over-brightening
+    finalColor = clamp(finalColor, 0.0, 1.0);
+    
+    // Add multifractal layers with full opacity
+    vec3 multifractalColor = vec3(0.0);
+    
+    // Layer 1: Red/Orange fractal - rotating and zooming
+    float mt1 = u_time * 0.3;
+    vec2 mcenter1 = vec2(-0.5 + 0.2 * sin(mt1), 0.0 + 0.2 * cos(mt1 * 0.7));
+    float mzoom1 = 1.0 + 0.5 * sin(mt1 * 0.5);
+    float mrot1 = mt1 * 0.2;
+    float mm1 = mandelbrotMultifractal(mcenter1, mzoom1, mrot1, 80);
+    vec3 mcolor1 = vec3(
+      0.8 + 0.2 * cos(mm1 * 20.0 + mt1),
+      0.3 + 0.2 * sin(mm1 * 15.0),
+      0.1
+    ) * mm1 * 0.6;
+    multifractalColor += mcolor1;
+    
+    // Layer 2: Cyan/Blue fractal - different animation
+    float mt2 = u_time * 0.4;
+    vec2 mcenter2 = vec2(-0.75 + 0.15 * cos(mt2 * 0.8), 0.1 + 0.15 * sin(mt2));
+    float mzoom2 = 1.2 + 0.3 * cos(mt2 * 0.6);
+    float mrot2 = -mt2 * 0.15;
+    float mm2 = mandelbrotMultifractal(mcenter2, mzoom2, mrot2, 100);
+    vec3 mcolor2 = vec3(
+      0.1,
+      0.5 + 0.3 * cos(mm2 * 18.0 + mt2 * 2.0),
+      0.9 + 0.1 * sin(mm2 * 12.0)
+    ) * mm2 * 0.5;
+    multifractalColor += mcolor2;
+    
+    // Layer 3: Green/Magenta fractal - faster animation
+    float mt3 = u_time * 0.5;
+    vec2 mcenter3 = vec2(-0.2 + 0.1 * sin(mt3 * 1.2), 0.8 + 0.1 * cos(mt3 * 0.9));
+    float mzoom3 = 0.8 + 0.4 * sin(mt3 * 0.7);
+    float mrot3 = mt3 * 0.25;
+    float mm3 = mandelbrotMultifractal(mcenter3, mzoom3, mrot3, 90);
+    vec3 mcolor3 = vec3(
+      0.2 + 0.3 * sin(mm3 * 16.0),
+      0.8 + 0.2 * cos(mm3 * 14.0 + mt3),
+      0.4 + 0.3 * sin(mm3 * 10.0)
+    ) * mm3 * 0.4;
+    multifractalColor += mcolor3;
+    
+    // Layer 4: Purple/Yellow fractal - slow and smooth
+    float mt4 = u_time * 0.25;
+    vec2 mcenter4 = vec2(0.0 + 0.12 * cos(mt4 * 0.5), -0.5 + 0.12 * sin(mt4 * 0.6));
+    float mzoom4 = 1.1 + 0.2 * cos(mt4 * 0.4);
+    float mrot4 = -mt4 * 0.1;
+    float mm4 = mandelbrotMultifractal(mcenter4, mzoom4, mrot4, 85);
+    vec3 mcolor4 = vec3(
+      0.6 + 0.2 * cos(mm4 * 22.0),
+      0.3 + 0.2 * sin(mm4 * 19.0),
+      0.7 + 0.2 * cos(mm4 * 17.0 + mt4)
+    ) * mm4 * 0.35;
+    multifractalColor += mcolor4;
+    
+    // Normalize and enhance multifractal
+    multifractalColor = pow(multifractalColor, vec3(0.9)); // Slight gamma correction
+    multifractalColor = clamp(multifractalColor, 0.0, 1.0);
+    
+    // Blend multifractal with full opacity
+    finalColor = finalColor + multifractalColor;
+    finalColor = clamp(finalColor, 0.0, 1.0);
+    
+    gl_FragColor = vec4(finalColor, 1.0);
+  }
 </script>
 
     <script type="x-shader/x-vertex" id="model-vs">
@@ -908,11 +1218,28 @@ void main() {
         console.error("model", gl.getProgramInfoLog(modelProg));
     }
 
+    const mfVs = createShader(gl, gl.VERTEX_SHADER, document.getElementById("bg-vs").text);
+    const mfFs = createShader(gl, gl.FRAGMENT_SHADER, document.getElementById("mf-fs").text);
+    const mfProg = gl.createProgram();
+    gl.attachShader(mfProg, mfVs);
+    gl.attachShader(mfProg, mfFs);
+    gl.linkProgram(mfProg);
+    if (!gl.getProgramParameter(mfProg, gl.LINK_STATUS)) {
+        console.error("mf", gl.getProgramInfoLog(mfProg));
+    }
+
     const quadBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
         -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1
     ]), gl.STATIC_DRAW);
+
+    const dummyBlackTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, dummyBlackTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.bindTexture(gl.TEXTURE_2D, null);
 
     const bgPosLoc = gl.getAttribLocation(bgProg, "a_position");
     const uBgRes = gl.getUniformLocation(bgProg, "u_resolution");
@@ -930,6 +1257,28 @@ void main() {
     const uBgTentBack = gl.getUniformLocation(bgProg, "u_tentacleBack");
     const uBgTentLift = gl.getUniformLocation(bgProg, "u_tentacleLift");
     const uBgTentAmt = gl.getUniformLocation(bgProg, "u_tentacleBackAmt");
+    const uBgTentReveal = gl.getUniformLocation(bgProg, "u_tentacleReveal");
+    const uBgFractal = gl.getUniformLocation(bgProg, "u_fractalBg");
+    const uBgFractMix = gl.getUniformLocation(bgProg, "u_fractalSkyMix");
+
+    const mfPosLoc = gl.getAttribLocation(mfProg, "a_position");
+    const uMfRes = gl.getUniformLocation(mfProg, "u_resolution");
+    const uMfCenter = gl.getUniformLocation(mfProg, "u_center");
+    const uMfZoom = gl.getUniformLocation(mfProg, "u_zoom");
+    const uMfMaxIter = gl.getUniformLocation(mfProg, "u_maxIterations");
+    const uMfRot = gl.getUniformLocation(mfProg, "u_rotation");
+    const uMfEscape = gl.getUniformLocation(mfProg, "u_escapeRadius");
+    const uMfColorOff = gl.getUniformLocation(mfProg, "u_colorOffset");
+    const uMfColorSpeed = gl.getUniformLocation(mfProg, "u_colorSpeed");
+    const uMfColorInt = gl.getUniformLocation(mfProg, "u_colorIntensity");
+    const uMfJuliaMode = gl.getUniformLocation(mfProg, "u_juliaMode");
+    const uMfJuliaC = gl.getUniformLocation(mfProg, "u_juliaC");
+    const uMfJuliaC2 = gl.getUniformLocation(mfProg, "u_juliaC2");
+    const uMfJuliaC3 = gl.getUniformLocation(mfProg, "u_juliaC3");
+    const uMfGreenRot = gl.getUniformLocation(mfProg, "u_greenRotation");
+    const uMfRedRot = gl.getUniformLocation(mfProg, "u_redRotation");
+    const uMfTime = gl.getUniformLocation(mfProg, "u_time");
+    const uMfPalette = gl.getUniformLocation(mfProg, "u_colorPalette");
 
     const mPos = gl.getAttribLocation(modelProg, "a_position");
     const mNor = gl.getAttribLocation(modelProg, "a_normal");
@@ -1277,6 +1626,86 @@ void main() {
         });
     }
 
+    const pointer = {
+        inside: false,
+        down: false,
+        tx: 0.5,
+        ty: 0.5,
+        nx: 0.5,
+        ny: 0.5,
+        clickFlash: 0
+    };
+    const pointerEffect = {
+        hueAdd: 0,
+        glowAdd: 0,
+        riftAdd: 0,
+        burstAdd: 0,
+        driftAdd: 0,
+        dispAmpAdd: 0,
+        mergeAdd: 0,
+        fractPanX: 0,
+        fractPanY: 0,
+        fractZoomAdd: 0,
+        fractRotAdd: 0,
+        fractJuliaX: 0,
+        fractJuliaY: 0,
+        fractGreenRot: 0,
+        fractRedRot: 0,
+        fractColorSpeed: 0,
+        orbitPhaseAdd: 0
+    };
+
+    function setupPointerInteraction() {
+        const syncCamDist = () => {
+            const el = document.getElementById("camDist");
+            const disp = document.getElementById("camDistValue");
+            if (el) el.value = params.camDist;
+            if (disp) disp.textContent = params.camDist.toFixed(2);
+        };
+        const setFromEvent = (e) => {
+            const r = canvas.getBoundingClientRect();
+            if (r.width < 1 || r.height < 1) return;
+            pointer.tx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+            pointer.ty = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+        };
+        canvas.addEventListener("pointerenter", () => {
+            pointer.inside = true;
+            canvas.style.cursor = "crosshair";
+        });
+        canvas.addEventListener("pointerleave", () => {
+            pointer.inside = false;
+            pointer.down = false;
+            canvas.style.cursor = "";
+        });
+        canvas.addEventListener("pointerdown", (e) => {
+            if (e.button !== 0) return;
+            pointer.down = true;
+            canvas.style.cursor = "grabbing";
+            canvas.setPointerCapture(e.pointerId);
+            setFromEvent(e);
+            pointer.clickFlash = 1;
+        });
+        canvas.addEventListener("pointerup", (e) => {
+            pointer.down = false;
+            canvas.style.cursor = pointer.inside ? "crosshair" : "";
+            try {
+                canvas.releasePointerCapture(e.pointerId);
+            } catch (_) {}
+        });
+        canvas.addEventListener("pointercancel", () => {
+            pointer.down = false;
+            canvas.style.cursor = pointer.inside ? "crosshair" : "";
+        });
+        canvas.addEventListener("pointermove", setFromEvent);
+        canvas.addEventListener("wheel", (e) => {
+            e.preventDefault();
+            const step = (e.deltaY > 0 ? 1 : -1) * 0.055;
+            params.camDist = Math.min(3.5, Math.max(0.6, params.camDist + step));
+            syncCamDist();
+        }, { passive: false });
+    }
+    setupPointerInteraction();
+
     function cornersFromMinMax(min, max) {
         const c = [];
         for (let i = 0; i < 8; i++) {
@@ -1397,8 +1826,150 @@ void main() {
 
     let startTime = Date.now();
 
+    function updatePointerForFrame() {
+        if (!pointer.inside) {
+            pointer.tx = 0.5;
+            pointer.ty = 0.5;
+        }
+        const s = pointer.inside ? 0.16 : 0.08;
+        pointer.nx += (pointer.tx - pointer.nx) * s;
+        pointer.ny += (pointer.ty - pointer.ny) * s;
+        pointer.clickFlash *= 0.88;
+        const px = pointer.nx;
+        const py = pointer.ny;
+        pointerEffect.hueAdd = (px - 0.5) * 1.8;
+        pointerEffect.glowAdd = (0.5 - py) * 0.55 + pointer.clickFlash * 0.9;
+        pointerEffect.riftAdd = (py - 0.5) * 0.14;
+        pointerEffect.burstAdd = (py - 0.5) * 0.28 + (pointer.down ? 0.08 : 0);
+        pointerEffect.driftAdd = (px - 0.5) * 0.22;
+        pointerEffect.dispAmpAdd = (1 - py) * 0.035;
+        pointerEffect.mergeAdd = pointer.down ? 0.035 : 0;
+        pointerEffect.fractPanX = (px - 0.5) * 0.38;
+        pointerEffect.fractPanY = (py - 0.5) * 0.32;
+        pointerEffect.fractZoomAdd = (0.5 - py) * 3.8;
+        pointerEffect.fractRotAdd = (px - 0.5) * 0.65;
+        pointerEffect.fractJuliaX = (px - 0.5) * 0.2 + (py - 0.5) * 0.08;
+        pointerEffect.fractJuliaY = (py - 0.5) * 0.12;
+        pointerEffect.fractGreenRot = (py - 0.5) * 0.38;
+        pointerEffect.fractRedRot = (px - 0.5) * -0.32;
+        pointerEffect.fractColorSpeed = pointer.clickFlash * 8;
+        pointerEffect.orbitPhaseAdd = (px - 0.5) * 0.55;
+    }
+
+    const fractalBase = {
+        center: [0, 0],
+        zoom: 3.4,
+        maxIter: 100,
+        rotation: 0,
+        escapeR: 4,
+        colorOffset: 3.2,
+        colorSpeed: 10,
+        colorIntensity: 1,
+        juliaMode: 1,
+        juliaC: [-1.22, 0.19],
+        juliaC2: [-1.18, 0.19],
+        juliaC3: [-1.25, 0.19],
+        greenRot: 0.04,
+        redRot: -0.04,
+        palette: 1
+    };
+    let fractalFbo = null;
+    let fractalTex = null;
+    let fractalFbW = 0;
+    let fractalFbH = 0;
+
+    function createFractalFbo(w, h) {
+        const fb = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        return ok ? { fb, tex } : null;
+    }
+
+    function ensureFractalFbo(w, h) {
+        if (w < 1 || h < 1) return;
+        if (fractalFbo && fractalFbW === w && fractalFbH === h) return;
+        if (fractalTex) {
+            gl.deleteTexture(fractalTex);
+            gl.deleteFramebuffer(fractalFbo);
+        }
+        const built = createFractalFbo(w, h);
+        if (!built) return;
+        fractalFbo = built.fb;
+        fractalTex = built.tex;
+        fractalFbW = w;
+        fractalFbH = h;
+    }
+
+    function updateFractalBaseAnimations(t) {
+        const s = Math.sin(t * 0.22);
+        const c = Math.cos(t * 0.17);
+        fractalBase.juliaC[0] = -1.19 + 0.08 * s;
+        fractalBase.juliaC2[0] = -1.17 + 0.08 * Math.sin(t * 0.22 + 1.1);
+        fractalBase.juliaC3[0] = -1.21 + 0.08 * Math.sin(t * 0.22 + 2.0);
+        fractalBase.greenRot = 0.05 * Math.sin(t * 0.15);
+        fractalBase.redRot = -0.05 * Math.sin(t * 0.15);
+        fractalBase.colorOffset = 3.1 + 0.45 * c;
+    }
+
+    function drawMultifractalPass(w, h, timeSec) {
+        ensureFractalFbo(w, h);
+        if (!fractalTex) return;
+        updateFractalBaseAnimations(timeSec);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fractalFbo);
+        gl.viewport(0, 0, w, h);
+        gl.disable(gl.DEPTH_TEST);
+        gl.depthMask(false);
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.useProgram(mfProg);
+        gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+        gl.enableVertexAttribArray(mfPosLoc);
+        gl.vertexAttribPointer(mfPosLoc, 2, gl.FLOAT, false, 0, 0);
+
+        const cx = fractalBase.center[0] + pointerEffect.fractPanX;
+        const cy = fractalBase.center[1] + pointerEffect.fractPanY;
+        const zm = Math.max(0.12, fractalBase.zoom + pointerEffect.fractZoomAdd);
+        const rot = fractalBase.rotation + pointerEffect.fractRotAdd;
+        const jc0 = fractalBase.juliaC[0] + pointerEffect.fractJuliaX;
+        const jc1 = fractalBase.juliaC[1] + pointerEffect.fractJuliaY;
+        const j2x = fractalBase.juliaC2[0] + pointerEffect.fractJuliaX * 0.7;
+        const j3x = fractalBase.juliaC3[0] + pointerEffect.fractJuliaX * 0.5;
+
+        gl.uniform2f(uMfRes, w, h);
+        gl.uniform2f(uMfCenter, cx, cy);
+        gl.uniform1f(uMfZoom, zm);
+        gl.uniform1i(uMfMaxIter, fractalBase.maxIter);
+        gl.uniform1f(uMfRot, rot);
+        gl.uniform1f(uMfEscape, fractalBase.escapeR);
+        gl.uniform1f(uMfColorOff, fractalBase.colorOffset + pointer.clickFlash * 0.4);
+        gl.uniform1f(uMfColorSpeed, Math.min(50, fractalBase.colorSpeed + pointerEffect.fractColorSpeed));
+        gl.uniform1f(uMfColorInt, fractalBase.colorIntensity);
+        gl.uniform1i(uMfJuliaMode, fractalBase.juliaMode);
+        gl.uniform2f(uMfJuliaC, jc0, jc1);
+        gl.uniform2f(uMfJuliaC2, j2x, fractalBase.juliaC2[1]);
+        gl.uniform2f(uMfJuliaC3, j3x, fractalBase.juliaC3[1]);
+        gl.uniform1f(uMfGreenRot, fractalBase.greenRot + pointerEffect.fractGreenRot);
+        gl.uniform1f(uMfRedRot, fractalBase.redRot + pointerEffect.fractRedRot);
+        gl.uniform1f(uMfTime, timeSec);
+        gl.uniform1i(uMfPalette, fractalBase.palette);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
+
     function drawBackground(w, h, time) {
         updateLiveParams(performance.now() / 1000);
+        updatePointerForFrame();
+        drawMultifractalPass(w, h, time);
         gl.useProgram(bgProg);
         gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
         gl.enableVertexAttribArray(bgPosLoc);
@@ -1406,15 +1977,15 @@ void main() {
         gl.uniform2f(uBgRes, w, h);
         gl.uniform1f(uBgTime, time);
         gl.uniform1f(uBgTwist, params.tentacleTwist);
-        gl.uniform1f(uBgRift, params.riftSize);
+        gl.uniform1f(uBgRift, Math.min(1.2, Math.max(0.2, params.riftSize + pointerEffect.riftAdd)));
         gl.uniform1i(uBgCount, params.tentacleCount);
-        gl.uniform1f(uBgMerge, params.merge);
+        gl.uniform1f(uBgMerge, Math.min(0.6, Math.max(0.05, params.merge + pointerEffect.mergeAdd)));
         gl.uniform1f(uBgFog, params.fogDensity);
-        gl.uniform1f(uBgGlow, params.glowIntensity);
+        gl.uniform1f(uBgGlow, Math.min(2.5, Math.max(0.2, params.glowIntensity + pointerEffect.glowAdd)));
         gl.uniform1f(uBgPulse, params.pulseSpeed);
-        gl.uniform1f(uBgHue, params.colorShift);
+        gl.uniform1f(uBgHue, params.colorShift + pointerEffect.hueAdd);
         gl.uniform1f(uBgOrbit, params.orbitSpeed);
-        gl.uniform1f(uBgDrift, params.driftSpeed);
+        gl.uniform1f(uBgDrift, Math.min(1, Math.max(0, params.driftSpeed + pointerEffect.driftAdd)));
         const orb = time * params.orbitSpeed;
         const camR = 4.1;
         const rox = camR * Math.cos(orb);
@@ -1428,6 +1999,11 @@ void main() {
         const lift = 0.12 + 0.72 * (0.5 + 0.5 * Math.sin(time * 0.42 + 0.8));
         gl.uniform1f(uBgTentLift, lift);
         gl.uniform1f(uBgTentAmt, 2.15);
+        gl.uniform1f(uBgTentReveal, params.explodeAmt);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, fractalTex || dummyBlackTex);
+        gl.uniform1i(uBgFractal, 0);
+        gl.uniform1f(uBgFractMix, fractalTex ? 0.72 : 0.0);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
@@ -1442,7 +2018,7 @@ void main() {
         const model = multiplyMat4(multiplyMat4(mesh.modelBase, yaw), userScale);
 
         const dist = baseRadius * camDistMul * params.camDist;
-        const orbitT = time * 0.35;
+        const orbitT = time * 0.35 + pointerEffect.orbitPhaseAdd;
         const eye = [
             worldCenter[0] + Math.cos(orbitT) * dist * 0.85,
             worldCenter[1] + 0.25 * dist,
@@ -1489,13 +2065,13 @@ void main() {
         gl.uniformMatrix3fv(uNorm, false, normMat);
         gl.uniform1f(uModelTime, time);
         gl.uniform1f(uEffectMode, params.effectMode === "waves" ? 1.0 : 0.0);
-        gl.uniform1f(uDispAmp, params.dispAmp);
+        gl.uniform1f(uDispAmp, Math.min(0.2, Math.max(0, params.dispAmp + pointerEffect.dispAmpAdd)));
         gl.uniform1f(uDispFreq, params.dispFreq);
         gl.uniform1f(uDispSpeed, params.dispSpeed);
         gl.uniform1f(uDispCrest, params.dispCrest);
         gl.uniform1f(uExplodeAmt, params.explodeAmt);
         gl.uniform1f(uShardSpin, params.shardSpin);
-        gl.uniform1f(uBurstPulse, params.burstPulse);
+        gl.uniform1f(uBurstPulse, Math.min(1, Math.max(0, params.burstPulse + pointerEffect.burstAdd)));
         gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
     }
 
