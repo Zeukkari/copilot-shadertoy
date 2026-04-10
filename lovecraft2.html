@@ -450,7 +450,7 @@ void main() {
     vec3 relR = R * rel;
     vec3 nR = R * n;
     float pulse = sin(u_time * 2.2 + a_triRnd * 40.0);
-    float burst = u_explodeAmt * (5.5 + u_burstPulse * 3.0 * pulse);
+    float burst = u_explodeAmt * (55.0 + u_burstPulse * 30.0 * pulse);
     p = c + a_burstDir * burst + relR;
     n = nR;
     v_dispHighlight = 0.5 + 0.5 * fract(pulse * 0.5 + a_triRnd);
