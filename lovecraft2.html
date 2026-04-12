@@ -119,6 +119,7 @@
             <select id="effectMode" style="background:#1a2420;color:#9ab0a5;border:1px solid #2a4a3c;padding:4px 8px;border-radius:4px;width:100%;">
                 <option value="shards" selected>Triangle burst</option>
                 <option value="waves">Waves along normals</option>
+                <option value="fractal">Eldritch pulse</option>
             </select>
         </div>
         <div class="control-group" id="shardControls">
@@ -156,6 +157,21 @@
             <input type="range" id="dispCrest" min="0" max="1" step="0.02" value="1.0">
             <span class="value-display" id="dispCrestValue">1.00</span>
         </div>
+        <div class="control-group" id="fractalControls" style="display:none;">
+            <label for="fractalAmp">Pulse amplitude:</label>
+            <input type="range" id="fractalAmp" min="0" max="0.3" step="0.005" value="0.08">
+            <span class="value-display" id="fractalAmpValue">0.08</span>
+        </div>
+        <div class="control-group" id="fractalControls2" style="display:none;">
+            <label for="fractalFreq">Domain frequency:</label>
+            <input type="range" id="fractalFreq" min="0.5" max="6" step="0.1" value="1.8">
+            <span class="value-display" id="fractalFreqValue">1.80</span>
+        </div>
+        <div class="control-group" id="fractalControls3" style="display:none;">
+            <label for="fractalSpeed">Julia drift speed:</label>
+            <input type="range" id="fractalSpeed" min="0" max="3" step="0.05" value="0.7">
+            <span class="value-display" id="fractalSpeedValue">0.70</span>
+        </div>
         <div class="control-group">
             <label for="edgeWidth">Edge width:</label>
             <input type="range" id="edgeWidth" min="0" max="0.15" step="0.001" value="0.035">
@@ -171,6 +187,38 @@
             <input type="range" id="quality" min="0.15" max="1.0" step="0.05" value="0.45">
             <span class="value-display" id="qualityValue">0.45</span>
         </div>
+
+        <h3>Fractal Plane</h3>
+        <div class="control-group">
+            <label for="planeVisible">Show plane:</label>
+            <input type="checkbox" id="planeVisible" checked style="width:auto;cursor:pointer;">
+        </div>
+        <div class="control-group">
+            <label for="planeScale">Plane scale:</label>
+            <input type="range" id="planeScale" min="0.5" max="5.0" step="0.05" value="2.5">
+            <span class="value-display" id="planeScaleValue">2.50</span>
+        </div>
+        <div class="control-group">
+            <label for="planeY">Plane Y position:</label>
+            <input type="range" id="planeY" min="-2.5" max="1.0" step="0.05" value="-1.0">
+            <span class="value-display" id="planeYValue">-1.00</span>
+        </div>
+        <div class="control-group">
+            <label for="planeDisp">Height displacement:</label>
+            <input type="range" id="planeDisp" min="0" max="0.5" step="0.01" value="0.18">
+            <span class="value-display" id="planeDispValue">0.18</span>
+        </div>
+        <div class="control-group">
+            <label for="planeFractalSpeed">Fractal speed:</label>
+            <input type="range" id="planeFractalSpeed" min="0" max="3" step="0.05" value="0.6">
+            <span class="value-display" id="planeFractalSpeedValue">0.60</span>
+        </div>
+        <div class="control-group">
+            <label for="planeAlpha">Opacity:</label>
+            <input type="range" id="planeAlpha" min="0.05" max="1.0" step="0.05" value="0.92">
+            <span class="value-display" id="planeAlphaValue">0.92</span>
+        </div>
+
         <button id="resetBtn" class="reset-btn">Reset to default</button>
     </div>
     <button id="toggleControls" title="Toggle controls">⚙️</button>
@@ -502,12 +550,20 @@ uniform float u_dispSpeed;
 uniform float u_explodeAmt;
 uniform float u_shardSpin;
 uniform float u_burstPulse;
+// Eldritch Pulse uniforms
+uniform vec2 u_juliaC;
+uniform vec2 u_juliaC2;
+uniform vec2 u_juliaC3;
+uniform float u_fractalAmp;
+uniform float u_fractalFreq;
+uniform float u_fractalSpeed;
 varying vec3 v_normal;
 varying vec3 v_view;
 varying vec2 v_uv;
 varying float v_dispHighlight;
 varying float v_shardMix;
 varying vec3 v_bary;
+varying float v_fractalMag;
 
 mat3 rotAxisAngle(vec3 axis, float angle) {
   axis = normalize(axis);
@@ -525,8 +581,63 @@ void main() {
   vec3 n = normalize(a_normal);
   vec3 p = a_position;
   v_shardMix = 0.0;
+  v_fractalMag = 0.0;
 
-  if (u_effectMode > 0.5) {
+  if (u_effectMode > 1.5) {
+    // --- Eldritch Pulse: Julia-driven displacement ---
+    // Map 3D position to a 2D fractal domain via two dot products
+    float freq = u_fractalFreq;
+    vec2 frac_uv = vec2(
+      dot(p, vec3(0.8, 0.6, 0.4)),
+      dot(p, vec3(0.5, 0.9, 0.3))
+    ) * freq;
+
+    // Drift the Julia constant over time (mirrors background animation)
+    float t = u_time * u_fractalSpeed;
+    vec2 jc = u_juliaC  + vec2(cos(t * 0.22) * 0.06, sin(t * 0.19) * 0.04);
+    vec2 jc2 = u_juliaC2 + vec2(sin(t * 0.17) * 0.05, cos(t * 0.23) * 0.03);
+    vec2 jc3 = u_juliaC3 + vec2(cos(t * 0.25) * 0.04, sin(t * 0.21) * 0.04);
+
+    // Short Julia iteration (fixed 8 steps, WebGL1-safe)
+    vec2 z = frac_uv;
+    for (int i = 0; i < 8; i++) {
+      z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + jc;
+      if (dot(z, z) > 16.0) break;
+    }
+    // Second layer (offset domain)
+    vec2 z2 = frac_uv + vec2(0.31, -0.17);
+    for (int i = 0; i < 6; i++) {
+      z2 = vec2(z2.x * z2.x - z2.y * z2.y, 2.0 * z2.x * z2.y) + jc2;
+      if (dot(z2, z2) > 16.0) break;
+    }
+    // Third layer
+    vec2 z3 = frac_uv * 0.71 + vec2(-0.23, 0.41);
+    for (int i = 0; i < 5; i++) {
+      z3 = vec2(z3.x * z3.x - z3.y * z3.y, 2.0 * z3.x * z3.y) + jc3;
+      if (dot(z3, z3) > 16.0) break;
+    }
+
+    float mag  = clamp(length(z)  / 4.0, 0.0, 1.0);
+    float mag2 = clamp(length(z2) / 4.0, 0.0, 1.0);
+    float mag3 = clamp(length(z3) / 4.0, 0.0, 1.0);
+    float combinedMag = mag * 0.55 + mag2 * 0.28 + mag3 * 0.17;
+
+    float ang = atan(z.y, z.x);
+
+    // Radial: push along normal by fractal magnitude
+    float disp_n = combinedMag * u_fractalAmp;
+
+    // Tangential twist: stable tangent in normal-plane
+    vec3 up = abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent = normalize(cross(n, up));
+    float disp_t = sin(ang + t * 0.5) * u_fractalAmp * 0.35;
+
+    p += n * disp_n + tangent * disp_t;
+
+    v_dispHighlight = combinedMag;
+    v_fractalMag    = combinedMag;
+
+  } else if (u_effectMode > 0.5) {
     float t = u_time * u_dispSpeed;
     float f = u_dispFreq;
     float w1 = sin(dot(p, vec3(3.1, 2.4, 1.7)) * f + t);
@@ -573,6 +684,7 @@ varying vec2 v_uv;
 varying float v_dispHighlight;
 varying float v_shardMix;
 varying vec3 v_bary;
+varying float v_fractalMag;
 uniform float u_time;
 uniform float u_effectMode;
 uniform float u_dispAmp;
@@ -584,7 +696,31 @@ void main() {
   vec3 V = normalize(v_view);
   vec3 L = normalize(vec3(0.35, 0.85, 0.4));
   vec3 col;
-  if (u_effectMode > 0.5) {
+  if (u_effectMode > 1.5) {
+    // --- Eldritch Pulse shading ---
+    float nd = max(dot(N, L), 0.0);
+    float wrap = nd * 0.6 + 0.4;
+    // Base surface: dark teal stone
+    vec3 base = vec3(0.12, 0.22, 0.20);
+    vec3 lit  = vec3(0.28, 0.44, 0.38);
+    col = mix(base, lit, wrap);
+    // Fresnel rim — eldritch green glow
+    float nv  = max(dot(N, V), 0.0);
+    float fres = pow(1.0 - nv, 1.8);
+    col += vec3(0.05, 0.55, 0.32) * fres * (0.4 + v_fractalMag * 0.9);
+    // SSS-like backlight
+    float sss = pow(1.0 - nd, 1.4) * 0.4;
+    col += vec3(0.08, 0.28, 0.22) * sss;
+    // Fractal crest glow — where displacement peaks, surface pulses
+    float pulse = 0.5 + 0.5 * sin(u_time * 1.8 + v_fractalMag * 12.0);
+    col += vec3(0.10, 0.70, 0.42) * v_fractalMag * pulse * 0.55;
+    // Deep-void ambient (purple-black subsurface)
+    col += vec3(0.08, 0.03, 0.14) * (1.0 - v_fractalMag) * 0.35;
+    // Fine grain
+    float grain = fract(sin(dot(v_uv * 600.0, vec2(12.9898, 78.233))) * 43758.5453);
+    col += (grain - 0.5) * 0.025;
+    col = clamp(col, 0.0, 1.0);
+  } else if (u_effectMode > 0.5) {
     float ndl = max(dot(N, L), 0.0);
     float wrap = ndl * 0.65 + 0.35;
     vec3 base = vec3(0.38, 0.42, 0.40);
@@ -621,6 +757,99 @@ void main() {
   float edgeBlend = smoothstep(0.0, u_edgeWidth, em);
   col = mix(u_edgeColor, col, edgeBlend);
   gl_FragColor = vec4(col, 1.0);
+}
+</script>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- Fractal Plane — vertex shader                                  -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <script type="x-shader/x-vertex" id="plane-vs">
+precision mediump float;
+// XZ grid position in [-1, 1]
+attribute vec2 a_xy;
+// UV in [0, 1]
+attribute vec2 a_uv;
+uniform mat4 u_mvp;
+uniform float u_time;
+uniform vec2  u_juliaC;
+uniform float u_planeDisp;
+uniform float u_planeFractalSpeed;
+varying vec2  v_uv;
+varying float v_fractalVal;
+
+void main() {
+  float t  = u_time * u_planeFractalSpeed;
+  vec2  jc = u_juliaC + vec2(cos(t * 0.22) * 0.05, sin(t * 0.19) * 0.04);
+
+  // Short Julia iteration for vertex height displacement
+  vec2  z    = a_xy * 1.8;
+  float iter = 0.0;
+  for (int i = 0; i < 10; i++) {
+    z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + jc;
+    if (dot(z, z) > 4.0) { iter = float(i) / 10.0; break; }
+  }
+
+  // Displace in local Y (up); model matrix positions + scales the plane
+  vec3 p = vec3(a_xy.x, iter * u_planeDisp, a_xy.y);
+
+  v_uv         = a_uv;
+  v_fractalVal = iter;
+  gl_Position  = u_mvp * vec4(p, 1.0);
+}
+</script>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- Fractal Plane — fragment shader                                -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <script type="x-shader/x-fragment" id="plane-fs">
+precision mediump float;
+varying vec2  v_uv;
+varying float v_fractalVal;
+uniform float u_time;
+uniform vec2  u_juliaC;
+uniform float u_planeFractalSpeed;
+uniform float u_planeAlpha;
+uniform float u_colorOffset;
+uniform float u_colorSpeed;
+
+void main() {
+  // Map UV [0,1] → fractal domain [-1.8, 1.8]
+  vec2 c  = (v_uv * 2.0 - 1.0) * 1.8;
+  float t = u_time * u_planeFractalSpeed;
+  vec2 jc = u_juliaC + vec2(cos(t * 0.22) * 0.05, sin(t * 0.19) * 0.04);
+
+  // Full Julia iteration (128 steps — matches background quality)
+  vec2  z       = c;
+  int   iter    = 0;
+  bool  escaped = false;
+  for (int i = 0; i < 128; i++) {
+    z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + jc;
+    if (dot(z, z) > 4.0) { iter = i; escaped = true; break; }
+  }
+
+  float frac = float(iter) / 128.0;
+
+  vec3 col;
+  if (!escaped) {
+    // Inside set: deep void colour with faint pulsing glow
+    float pulse = 0.5 + 0.5 * sin(u_time * 0.7 + u_colorOffset);
+    col = vec3(0.01, 0.03, 0.05) + vec3(0.02, 0.06, 0.04) * pulse;
+  } else {
+    // Fire palette — same math as background paletteFire / paletteRainbow blend
+    float s = frac * u_colorSpeed + u_colorOffset;
+    vec3 fire = vec3(
+      frac,
+      frac * frac * 0.55,
+      frac * frac * frac * 0.12
+    );
+    // Animated edge shimmer
+    float shimmer = 0.5 + 0.5 * cos(frac * 18.0 + u_time * 1.1 + u_colorOffset);
+    col  = fire + vec3(0.18, 0.38, 0.22) * shimmer * frac * 0.45;
+    col += vec3(0.06, 0.22, 0.14) * (1.0 - frac) * 0.3;
+    col  = clamp(col, 0.0, 1.0);
+  }
+
+  gl_FragColor = vec4(col, u_planeAlpha);
 }
 </script>
 
@@ -1010,6 +1239,17 @@ void main() {
         console.error("mf", gl.getProgramInfoLog(mfProg));
     }
 
+    // Fractal Plane program
+    const planeVs = createShader(gl, gl.VERTEX_SHADER,   document.getElementById("plane-vs").text);
+    const planeFs = createShader(gl, gl.FRAGMENT_SHADER, document.getElementById("plane-fs").text);
+    const planeProg = gl.createProgram();
+    gl.attachShader(planeProg, planeVs);
+    gl.attachShader(planeProg, planeFs);
+    gl.linkProgram(planeProg);
+    if (!gl.getProgramParameter(planeProg, gl.LINK_STATUS)) {
+        console.error("plane", gl.getProgramInfoLog(planeProg));
+    }
+
     const quadBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
@@ -1056,8 +1296,69 @@ void main() {
     const uBurstPulse = gl.getUniformLocation(modelProg, "u_burstPulse");
     const uEdgeColor = gl.getUniformLocation(modelProg, "u_edgeColor");
     const uEdgeWidth = gl.getUniformLocation(modelProg, "u_edgeWidth");
+    // Eldritch Pulse uniforms
+    const uJuliaC      = gl.getUniformLocation(modelProg, "u_juliaC");
+    const uJuliaC2     = gl.getUniformLocation(modelProg, "u_juliaC2");
+    const uJuliaC3     = gl.getUniformLocation(modelProg, "u_juliaC3");
+    const uFractalAmp  = gl.getUniformLocation(modelProg, "u_fractalAmp");
+    const uFractalFreq = gl.getUniformLocation(modelProg, "u_fractalFreq");
+    const uFractalSpd  = gl.getUniformLocation(modelProg, "u_fractalSpeed");
 
     const mBary = gl.getAttribLocation(modelProg, "a_bary");
+
+    // ── Fractal Plane attribute / uniform locations ─────────────────────────
+    const pXY          = gl.getAttribLocation(planeProg,  "a_xy");
+    const pUV          = gl.getAttribLocation(planeProg,  "a_uv");
+    const uPlaneMvp    = gl.getUniformLocation(planeProg, "u_mvp");
+    const uPlaneTime   = gl.getUniformLocation(planeProg, "u_time");
+    const uPlaneJuliaC = gl.getUniformLocation(planeProg, "u_juliaC");
+    const uPlaneDisp   = gl.getUniformLocation(planeProg, "u_planeDisp");
+    const uPlaneFSpd   = gl.getUniformLocation(planeProg, "u_planeFractalSpeed");
+    const uPlaneAlpha  = gl.getUniformLocation(planeProg, "u_planeAlpha");
+    const uPlaneColOff = gl.getUniformLocation(planeProg, "u_colorOffset");
+    const uPlaneColSpd = gl.getUniformLocation(planeProg, "u_colorSpeed");
+
+    // ── Plane mesh (64×64 subdivided grid) ──────────────────────────────────
+    function createPlaneMesh(n) {
+        const vtxCount = (n + 1) * (n + 1);
+        const xyArr  = new Float32Array(vtxCount * 2);
+        const uvArr  = new Float32Array(vtxCount * 2);
+        for (let row = 0; row <= n; row++) {
+            for (let col = 0; col <= n; col++) {
+                const i = row * (n + 1) + col;
+                xyArr[i * 2]     = (col / n) * 2.0 - 1.0;  // X: -1 → 1
+                xyArr[i * 2 + 1] = (row / n) * 2.0 - 1.0;  // Z: -1 → 1
+                uvArr[i * 2]     = col / n;
+                uvArr[i * 2 + 1] = row / n;
+            }
+        }
+        const idxArr = new Uint16Array(n * n * 6);
+        let idx = 0;
+        for (let row = 0; row < n; row++) {
+            for (let col = 0; col < n; col++) {
+                const tl = row * (n + 1) + col;
+                const tr = tl + 1;
+                const bl = (row + 1) * (n + 1) + col;
+                const br = bl + 1;
+                idxArr[idx++] = tl; idxArr[idx++] = bl; idxArr[idx++] = tr;
+                idxArr[idx++] = tr; idxArr[idx++] = bl; idxArr[idx++] = br;
+            }
+        }
+        const xyBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, xyBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, xyArr, gl.STATIC_DRAW);
+
+        const uvBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, uvArr, gl.STATIC_DRAW);
+
+        const idxBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idxArr, gl.STATIC_DRAW);
+
+        return { xyBuf, uvBuf, idxBuf, indexCount: idxArr.length };
+    }
+    const planeMesh = createPlaneMesh(64);
 
     let mesh = null;
     let vertexCount = 0;
@@ -1079,7 +1380,17 @@ void main() {
         shardSpin: 0,
         burstPulse: 1,
         edgeWidth: 0.035,
-        edgeColor: "#61ebb8"
+        edgeColor: "#61ebb8",
+        fractalAmp: 0.08,
+        fractalFreq: 1.8,
+        fractalSpeed: 0.7,
+        // Fractal Plane
+        planeVisible: true,
+        planeScale: 2.5,
+        planeY: -1.0,
+        planeDisp: 0.18,
+        planeFractalSpeed: 0.6,
+        planeAlpha: 0.92
     };
     let params = { ...defaults };
 
@@ -1161,6 +1472,21 @@ void main() {
         bind("shardSpin", "shardSpin");
         bind("burstPulse", "burstPulse");
         bind("edgeWidth", "edgeWidth");
+        bind("fractalAmp", "fractalAmp");
+        bind("fractalFreq", "fractalFreq");
+        bind("fractalSpeed", "fractalSpeed");
+        bind("planeScale", "planeScale");
+        bind("planeY", "planeY");
+        bind("planeDisp", "planeDisp");
+        bind("planeFractalSpeed", "planeFractalSpeed");
+        bind("planeAlpha", "planeAlpha");
+
+        const planeVisCheckbox = document.getElementById("planeVisible");
+        if (planeVisCheckbox) {
+            planeVisCheckbox.addEventListener("change", (e) => {
+                params.planeVisible = e.target.checked;
+            });
+        }
 
         // Animation toggle
         const animCheckbox = document.getElementById("animToggle");
@@ -1179,12 +1505,17 @@ void main() {
         }
 
         function syncEffectPanels() {
-            const shards = params.effectMode === "shards";
+            const shards  = params.effectMode === "shards";
+            const waves   = params.effectMode === "waves";
+            const fractal = params.effectMode === "fractal";
             document.querySelectorAll("#shardControls, #shardControls2, #shardControls3").forEach((el) => {
                 el.style.display = shards ? "block" : "none";
             });
             document.querySelectorAll("#waveControls, #waveControls2, #waveControls3, #waveControls4").forEach((el) => {
-                el.style.display = shards ? "none" : "block";
+                el.style.display = waves ? "block" : "none";
+            });
+            document.querySelectorAll("#fractalControls, #fractalControls2, #fractalControls3").forEach((el) => {
+                el.style.display = fractal ? "block" : "none";
             });
         }
         document.getElementById("effectMode").addEventListener("change", (e) => {
@@ -1214,6 +1545,8 @@ void main() {
             const edgeWEl = document.getElementById("edgeWidth");
             const edgeWValEl = document.getElementById("edgeWidthValue");
             if (edgeWEl) { edgeWEl.value = params.edgeWidth; if (edgeWValEl) edgeWValEl.textContent = params.edgeWidth.toFixed(3); }
+            const planeVisEl = document.getElementById("planeVisible");
+            if (planeVisEl) planeVisEl.checked = params.planeVisible;
             syncEffectPanels();
         });
     }
@@ -1587,7 +1920,7 @@ void main() {
         gl.uniformMatrix4fv(uMv, false, modelView);
         gl.uniformMatrix3fv(uNorm, false, normMat);
         gl.uniform1f(uModelTime, time);
-        gl.uniform1f(uEffectMode, params.effectMode === "waves" ? 1.0 : 0.0);
+        gl.uniform1f(uEffectMode, params.effectMode === "fractal" ? 2.0 : params.effectMode === "waves" ? 1.0 : 0.0);
         gl.uniform1f(uDispAmp, Math.min(0.2, Math.max(0, params.dispAmp + pointerEffect.dispAmpAdd)));
         gl.uniform1f(uDispFreq, params.dispFreq);
         gl.uniform1f(uDispSpeed, params.dispSpeed);
@@ -1601,7 +1934,80 @@ void main() {
         const b2 = parseInt(ec.slice(5,7),16)/255;
         gl.uniform3f(uEdgeColor, r, g2, b2);
         gl.uniform1f(uEdgeWidth, params.edgeWidth !== undefined ? params.edgeWidth : 0.035);
+        // Eldritch Pulse — pass Julia constants (same live values used by the background)
+        gl.uniform2f(uJuliaC,  fractalBase.juliaC[0]  + pointerEffect.fractJuliaX,
+                               fractalBase.juliaC[1]  + pointerEffect.fractJuliaY);
+        gl.uniform2f(uJuliaC2, fractalBase.juliaC2[0] + pointerEffect.fractJuliaX * 0.7,
+                               fractalBase.juliaC2[1] + pointerEffect.fractJuliaY * 0.7);
+        gl.uniform2f(uJuliaC3, fractalBase.juliaC3[0] + pointerEffect.fractJuliaX * 0.5,
+                               fractalBase.juliaC3[1] + pointerEffect.fractJuliaY * 0.5);
+        gl.uniform1f(uFractalAmp,  params.fractalAmp  !== undefined ? params.fractalAmp  : 0.08);
+        gl.uniform1f(uFractalFreq, params.fractalFreq !== undefined ? params.fractalFreq : 1.8);
+        gl.uniform1f(uFractalSpd,  params.fractalSpeed !== undefined ? params.fractalSpeed : 0.7);
         gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
+    }
+
+    // ── Fractal Plane draw call ──────────────────────────────────────────────
+    function drawFractalPlane(w, h, time) {
+        const aspect = w / h;
+        const proj   = perspective(Math.PI / 4, aspect, 0.05, 80);
+
+        const orbitT = time * 0.35 + pointerEffect.orbitPhaseAdd;
+        const dist   = baseRadius * camDistMul * params.camDist;
+        const eye    = [
+            worldCenter[0] + Math.cos(orbitT) * dist * 0.85,
+            worldCenter[1] + 0.25 * dist,
+            worldCenter[2] + Math.sin(orbitT) * dist * 0.85
+        ];
+        const view = lookAtView(eye, worldCenter, [0, 1, 0]);
+
+        // Place plane: translate to worldCenter + planeY offset, then scale XZ
+        const scale = params.planeScale !== undefined ? params.planeScale : 2.5;
+        const yOff  = params.planeY    !== undefined ? params.planeY    : -1.0;
+        const planeModel = multiplyMat4(
+            translationMat4(worldCenter[0], worldCenter[1] + yOff, worldCenter[2]),
+            scaleMat4(scale, 1.0, scale)
+        );
+        const mv  = multiplyMat4(view, planeModel);
+        const mvp = multiplyMat4(proj, mv);
+
+        const alpha = params.planeAlpha !== undefined ? params.planeAlpha : 0.92;
+
+        gl.useProgram(planeProg);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, planeMesh.xyBuf);
+        gl.enableVertexAttribArray(pXY);
+        gl.vertexAttribPointer(pXY, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, planeMesh.uvBuf);
+        gl.enableVertexAttribArray(pUV);
+        gl.vertexAttribPointer(pUV, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, planeMesh.idxBuf);
+
+        gl.uniformMatrix4fv(uPlaneMvp,    false, mvp);
+        gl.uniform1f(uPlaneTime,   time);
+        gl.uniform2f(uPlaneJuliaC,
+            fractalBase.juliaC[0] + pointerEffect.fractJuliaX,
+            fractalBase.juliaC[1] + pointerEffect.fractJuliaY);
+        gl.uniform1f(uPlaneDisp,   params.planeDisp  !== undefined ? params.planeDisp  : 0.18);
+        gl.uniform1f(uPlaneFSpd,   params.planeFractalSpeed !== undefined ? params.planeFractalSpeed : 0.6);
+        gl.uniform1f(uPlaneAlpha,  alpha);
+        gl.uniform1f(uPlaneColOff, fractalBase.colorOffset);
+        gl.uniform1f(uPlaneColSpd, fractalBase.colorSpeed);
+
+        // Alpha blend if not fully opaque
+        if (alpha < 1.0) {
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        }
+        // Disable face culling so both sides of the plane are visible
+        gl.disable(gl.CULL_FACE);
+
+        gl.drawElements(gl.TRIANGLES, planeMesh.indexCount, gl.UNSIGNED_SHORT, 0);
+
+        if (alpha < 1.0) gl.disable(gl.BLEND);
+        gl.enable(gl.CULL_FACE);
     }
 
     function render() {
@@ -1630,6 +2036,12 @@ void main() {
         gl.depthFunc(gl.LEQUAL);
         gl.enable(gl.CULL_FACE);
         gl.cullFace(gl.BACK);
+
+        // Draw fractal plane before the model so depth-test works correctly
+        if (params.planeVisible) {
+            drawFractalPlane(targetWidth, targetHeight, time);
+        }
+
         drawModel(targetWidth, targetHeight, time);
 
         requestAnimationFrame(render);
