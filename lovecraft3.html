@@ -112,29 +112,6 @@
             <label for="animToggle">Auto-animate:</label>
             <input type="checkbox" id="animToggle" checked style="width:auto;cursor:pointer;">
         </div>
-        <div class="control-group">
-            <label for="cycleTime">Cycle time (s):</label>
-            <input type="range" id="cycleTime" min="1" max="60" step="1" value="8">
-            <span class="value-display" id="cycleTimeValue">8</span>
-        </div>
-        <div class="control-group">
-            <label for="burstEase">Easing:</label>
-            <select id="burstEase" style="background:#1a2420;color:#9ab0a5;border:1px solid #2a4a3c;padding:4px 8px;border-radius:4px;width:100%;">
-                <option value="linear">Linear</option>
-                <option value="sineInOut">Sine in-out</option>
-                <option value="cubicInOut">Cubic in-out</option>
-                <option value="quartInOut">Quart in-out</option>
-                <option value="quintInOut">Quint in-out</option>
-                <option value="bounceIn">Bounce in</option>
-                <option value="bounceOut">Bounce out</option>
-                <option value="bounceInOut">Bounce in-out</option>
-                <option value="elasticIn">Elastic in</option>
-                <option value="elasticOut">Elastic out</option>
-                <option value="elasticInOut">Elastic in-out</option>
-                <option value="backIn">Back in</option>
-                <option value="backOut" selected>Back out</option>
-            </select>
-        </div>
 
         <h3>Vertex shader</h3>
         <div class="control-group">
@@ -1474,8 +1451,6 @@ void main() {
         burstPulse: 1,
         edgeWidth: 0.035,
         edgeColor: "#61ebb8",
-        burstEase: "backOut",
-        cycleTime: 8,
         fractalAmp: 0.08,
         fractalFreq: 1.8,
         fractalSpeed: 0.7,
@@ -1507,38 +1482,23 @@ void main() {
         if (t < 2.5 / d1)     { t -= 2.25  / d1; return n1 * t * t + 0.9375; }
                                  t -= 2.625 / d1; return n1 * t * t + 0.984375;
     }
-    function easeInBounce(t)    { return 1 - easeOutBounce(1 - t); }
+    /** t ∈ [0,1] → easeInBounce (accelerating bounces). */
+    function easeInBounce(t) { return 1 - easeOutBounce(1 - t); }
+
+    /** t ∈ [0,1] → easeInElastic (snaps to target with elastic overshoot near end). */
     function easeInElastic(t) {
-        if (t <= 0) return 0; if (t >= 1) return 1;
+        if (t <= 0) return 0;
+        if (t >= 1) return 1;
         const c4 = (2 * Math.PI) / 3;
         return -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * c4);
     }
-    function easeOutElastic(t) {
-        if (t <= 0) return 0; if (t >= 1) return 1;
-        const c4 = (2 * Math.PI) / 3;
-        return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
-    }
 
-    // Burst ping-pong: 0 → 1 (cycleTime/2 s) then 1 → 0 (cycleTime/2 s), repeating.
-    const BURST_HALF  = 35;               // initial half-cycle (overridden by params.cycleTime each frame)
-    const BURST_CYCLE = BURST_HALF * 2;  // kept for reference; actual cycle is params.cycleTime
-
-    const BURST_EASE_FNS = {
-        linear:       t => t,
-        sineInOut:    t => -(Math.cos(Math.PI * t) - 1) / 2,
-        cubicInOut:   t => t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2,
-        quartInOut:   t => t < 0.5 ? 8*t*t*t*t : 1 - Math.pow(-2*t+2, 4)/2,
-        quintInOut:   t => t < 0.5 ? 16*t*t*t*t*t : 1 - Math.pow(-2*t+2, 5)/2,
-        bounceIn:     t => easeInBounce(t),
-        bounceOut:    t => easeOutBounce(t),
-        bounceInOut:  t => t < 0.5 ? (1 - easeOutBounce(1 - 2*t)) / 2 : (1 + easeOutBounce(2*t - 1)) / 2,
-        elasticIn:    t => easeInElastic(t),
-        elasticOut:   t => easeOutElastic(t),
-        elasticInOut: t => t < 0.5 ? -(Math.pow(2, 20*t-10) * Math.sin((20*t-11.125)*(2*Math.PI/4.5)))/2
-                                    : (Math.pow(2,-20*t+10) * Math.sin((20*t-11.125)*(2*Math.PI/4.5)))/2 + 1,
-        backIn:       t => { const c1=1.70158; return (c1+1)*t*t*t - c1*t*t; },
-        backOut:      t => { const c1=1.70158; return 1 + (c1+1)*Math.pow(t-1,3) + c1*Math.pow(t-1,2); },
-    };
+    // Three-phase burst cycle (repeating, total 7 s):
+    //   Phase A (4 s): explodeAmt 0.13 → 1.0   easeInBounce
+    //   Phase B (2 s): explodeAmt 1.0  → 0.0   easeInBounce
+    //   Phase C (1 s): explodeAmt 0.0  → 0.13  easeInElastic
+    const BURST_PHASE_A = 40, BURST_PHASE_B = 20, BURST_PHASE_C = 10;
+    const BURST_CYCLE = BURST_PHASE_A + BURST_PHASE_B + BURST_PHASE_C; // 70 s
 
     let burstCycleStart = performance.now() / 1000;
 
@@ -1547,19 +1507,26 @@ void main() {
     }
 
     function updateLiveParams(nowSec) {
-        const half     = (params.cycleTime || 10) / 2;
-        const cycle    = half * 2;
-        const elapsed  = ((nowSec - burstCycleStart) % cycle + cycle) % cycle;
-        const easeFn   = BURST_EASE_FNS[params.burstEase] || BURST_EASE_FNS.cubicInOut;
-        const mu       = elapsed < half ? elapsed / half : (elapsed - half) / half;
-        const explodeAmt = elapsed < half ? easeFn(mu) : 1 - easeFn(mu);
+        const elapsed = ((nowSec - burstCycleStart) % BURST_CYCLE + BURST_CYCLE) % BURST_CYCLE;
+
+        let explodeAmt;
+        if (elapsed < BURST_PHASE_A) {
+            const mu = elapsed / BURST_PHASE_A;
+            explodeAmt = 0.13 + (1.0 - 0.13) * easeInBounce(mu);
+        } else if (elapsed < BURST_PHASE_A + BURST_PHASE_B) {
+            const mu = (elapsed - BURST_PHASE_A) / BURST_PHASE_B;
+            explodeAmt = 1.0 * (1.0 - easeInBounce(mu));
+        } else {
+            const mu = (elapsed - BURST_PHASE_A - BURST_PHASE_B) / BURST_PHASE_C;
+            explodeAmt = Math.max(0, 0.13 * easeInElastic(mu));
+        }
 
         params.explodeAmt = explodeAmt;
+
         const el = document.getElementById("explodeAmt");
         const disp = document.getElementById("explodeAmtValue");
         if (el) { el.value = explodeAmt; if (disp) disp.textContent = explodeAmt.toFixed(2); }
     }
-
 
     let animEnabled = true;
 
@@ -1630,17 +1597,6 @@ void main() {
             });
         }
 
-        // Burst easing selector
-        const burstEaseSelect = document.getElementById("burstEase");
-        if (burstEaseSelect) {
-            burstEaseSelect.addEventListener("change", (e) => {
-                params.burstEase = e.target.value;
-            });
-        }
-
-        // Cycle time slider (integer seconds)
-        bind("cycleTime", "cycleTime", true);
-
         // Edge color picker
         const edgeColorInput = document.getElementById("edgeColor");
         if (edgeColorInput) {
@@ -1685,11 +1641,6 @@ void main() {
                 }
             });
             document.getElementById("effectMode").value = params.effectMode;
-            const burstEaseEl = document.getElementById("burstEase");
-            if (burstEaseEl) burstEaseEl.value = params.burstEase;
-            const cycleTimeEl = document.getElementById("cycleTime");
-            const cycleTimeValEl = document.getElementById("cycleTimeValue");
-            if (cycleTimeEl) { cycleTimeEl.value = params.cycleTime; if (cycleTimeValEl) cycleTimeValEl.textContent = String(params.cycleTime); }
             const edgeCEl = document.getElementById("edgeColor");
             if (edgeCEl) edgeCEl.value = params.edgeColor;
             const edgeWEl = document.getElementById("edgeWidth");
