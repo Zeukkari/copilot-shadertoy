@@ -114,15 +114,15 @@
         </div>
         <div class="control-group">
             <label for="cycleTime">Cycle time (s):</label>
-            <input type="range" id="cycleTime" min="1" max="60" step="1" value="10">
-            <span class="value-display" id="cycleTimeValue">10</span>
+            <input type="range" id="cycleTime" min="1" max="60" step="1" value="8">
+            <span class="value-display" id="cycleTimeValue">8</span>
         </div>
         <div class="control-group">
             <label for="burstEase">Easing:</label>
             <select id="burstEase" style="background:#1a2420;color:#9ab0a5;border:1px solid #2a4a3c;padding:4px 8px;border-radius:4px;width:100%;">
                 <option value="linear">Linear</option>
                 <option value="sineInOut">Sine in-out</option>
-                <option value="cubicInOut" selected>Cubic in-out</option>
+                <option value="cubicInOut">Cubic in-out</option>
                 <option value="quartInOut">Quart in-out</option>
                 <option value="quintInOut">Quint in-out</option>
                 <option value="bounceIn">Bounce in</option>
@@ -132,7 +132,7 @@
                 <option value="elasticOut">Elastic out</option>
                 <option value="elasticInOut">Elastic in-out</option>
                 <option value="backIn">Back in</option>
-                <option value="backOut">Back out</option>
+                <option value="backOut" selected>Back out</option>
             </select>
         </div>
 
@@ -1103,8 +1103,8 @@ void main() {
         burstPulse: 1,
         edgeWidth: 0.035,
         edgeColor: "#61ebb8",
-        burstEase: "cubicInOut",
-        cycleTime: 10
+        burstEase: "backOut",
+        cycleTime: 8
     };
     let params = { ...defaults };
 
