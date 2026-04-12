@@ -2173,6 +2173,8 @@ void main() {
         if (alpha < 1.0) gl.disable(gl.BLEND);
         gl.enable(gl.CULL_FACE);
     }
+
+    function render() {
         const displayWidth = canvas.clientWidth;
         const displayHeight = canvas.clientHeight;
         const targetWidth = Math.floor(displayWidth * params.quality);
