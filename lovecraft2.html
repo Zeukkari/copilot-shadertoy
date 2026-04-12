@@ -107,12 +107,17 @@
             <span class="value-display" id="camDistValue">2.70</span>
         </div>
 
-        <h3>Mesh effect</h3>
-        <p style="font-size:11px;color:#6a806f;margin:-6px 0 10px;line-height:1.35;">Reference screen recording: <strong>triangle burst</strong> — each face flies outward and tumbles. <a href="https://sketchfab.com/3d-models/hajoilumies-025aecc3232341119d73c6560ad5fe33" style="color:#7dd4a8;">Hajoilumies</a> on Sketchfab.</p>
+        <h3>Animation</h3>
+        <div class="control-group">
+            <label for="animToggle">Auto-animate:</label>
+            <input type="checkbox" id="animToggle" checked style="width:auto;cursor:pointer;">
+        </div>
+
+        <h3>Vertex shader</h3>
         <div class="control-group">
             <label for="effectMode">Mode:</label>
             <select id="effectMode" style="background:#1a2420;color:#9ab0a5;border:1px solid #2a4a3c;padding:4px 8px;border-radius:4px;width:100%;">
-                <option value="shards" selected>Triangle burst (reference)</option>
+                <option value="shards" selected>Triangle burst</option>
                 <option value="waves">Waves along normals</option>
             </select>
         </div>
@@ -131,7 +136,6 @@
             <input type="range" id="burstPulse" min="0" max="1" step="0.02" value="0.25">
             <span class="value-display" id="burstPulseValue">0.25</span>
         </div>
-        <p style="font-size:11px;color:#6a806f;margin:4px 0 0;line-height:1.35;">3s calm hold, then burst: shard spin elastic from 0; burst amount uses the same slow power curve to ease up then ease back to 0 each iteration.</p>
         <div class="control-group" id="waveControls" style="display:none;">
             <label for="dispAmp">Wave strength:</label>
             <input type="range" id="dispAmp" min="0" max="0.2" step="0.002" value="0.04">
@@ -152,58 +156,16 @@
             <input type="range" id="dispCrest" min="0" max="1" step="0.02" value="1.0">
             <span class="value-display" id="dispCrestValue">1.00</span>
         </div>
+        <div class="control-group">
+            <label for="edgeWidth">Edge width:</label>
+            <input type="range" id="edgeWidth" min="0" max="0.15" step="0.001" value="0.035">
+            <span class="value-display" id="edgeWidthValue">0.035</span>
+        </div>
+        <div class="control-group">
+            <label for="edgeColor">Edge color:</label>
+            <input type="color" id="edgeColor" value="#61ebb8" style="width:100%;height:28px;padding:2px;border:1px solid #2a4a3c;background:#1a2420;border-radius:4px;cursor:pointer;">
+        </div>
 
-        <h3>Void (same as Lovecraft)</h3>
-        <div class="control-group">
-            <label for="tentacleTwist">Tentacle twist:</label>
-            <input type="range" id="tentacleTwist" min="0.1" max="1.2" step="0.01" value="0.45">
-            <span class="value-display" id="tentacleTwistValue">0.45</span>
-        </div>
-        <div class="control-group">
-            <label for="riftSize">Central rift:</label>
-            <input type="range" id="riftSize" min="0.2" max="1.2" step="0.01" value="0.55">
-            <span class="value-display" id="riftSizeValue">0.55</span>
-        </div>
-        <div class="control-group">
-            <label for="tentacleCount">Tentacle columns:</label>
-            <input type="range" id="tentacleCount" min="4" max="12" step="1" value="8">
-            <span class="value-display" id="tentacleCountValue">8</span>
-        </div>
-        <div class="control-group">
-            <label for="merge">Organic merge:</label>
-            <input type="range" id="merge" min="0.05" max="0.6" step="0.01" value="0.28">
-            <span class="value-display" id="mergeValue">0.28</span>
-        </div>
-        <div class="control-group">
-            <label for="fogDensity">Fog density:</label>
-            <input type="range" id="fogDensity" min="0.05" max="0.9" step="0.01" value="0.42">
-            <span class="value-display" id="fogDensityValue">0.42</span>
-        </div>
-        <div class="control-group">
-            <label for="glowIntensity">Biolume glow:</label>
-            <input type="range" id="glowIntensity" min="0.2" max="2.5" step="0.01" value="1.15">
-            <span class="value-display" id="glowIntensityValue">1.15</span>
-        </div>
-        <div class="control-group">
-            <label for="pulseSpeed">Pulse speed:</label>
-            <input type="range" id="pulseSpeed" min="0.0" max="2.0" step="0.05" value="0.65">
-            <span class="value-display" id="pulseSpeedValue">0.65</span>
-        </div>
-        <div class="control-group">
-            <label for="colorShift">Hue shift:</label>
-            <input type="range" id="colorShift" min="0.0" max="6.28" step="0.05" value="0.0">
-            <span class="value-display" id="colorShiftValue">0.00</span>
-        </div>
-        <div class="control-group">
-            <label for="orbitSpeed">Background orbit:</label>
-            <input type="range" id="orbitSpeed" min="0.0" max="0.8" step="0.01" value="0.12">
-            <span class="value-display" id="orbitSpeedValue">0.12</span>
-        </div>
-        <div class="control-group">
-            <label for="driftSpeed">Void drift:</label>
-            <input type="range" id="driftSpeed" min="0.0" max="1.0" step="0.01" value="0.18">
-            <span class="value-display" id="driftSpeedValue">0.18</span>
-        </div>
         <div class="control-group">
             <label for="quality">Quality (resolution):</label>
             <input type="range" id="quality" min="0.15" max="1.0" step="0.05" value="0.45">
@@ -219,181 +181,6 @@ varying vec2 v_uv;
 void main() {
   v_uv = a_position * 0.5 + 0.5;
   gl_Position = vec4(a_position, 0.0, 1.0);
-}
-</script>
-
-    <script type="x-shader/x-fragment" id="bg-fs">
-precision mediump float;
-uniform vec2 u_resolution;
-uniform float u_time;
-uniform float u_tentacleTwist;
-uniform float u_riftSize;
-uniform int u_tentacleCount;
-uniform float u_merge;
-uniform float u_fogDensity;
-uniform float u_glowIntensity;
-uniform float u_pulseSpeed;
-uniform float u_colorShift;
-uniform float u_orbitSpeed;
-uniform float u_driftSpeed;
-uniform vec3 u_tentacleBack;
-uniform float u_tentacleLift;
-uniform float u_tentacleBackAmt;
-/** 0 = model intact (tentacles off); 1 = full burst — drives visibility + reach. */
-uniform float u_tentacleReveal;
-uniform sampler2D u_fractalBg;
-uniform float u_fractalSkyMix;
-varying vec2 v_uv;
-#define MAX_STEPS 72
-#define MAX_DIST 28.0
-#define SURF_DIST 0.004
-#define PI 3.14159265
-mat2 rot2(float a) {
-  float s = sin(a); float c = cos(a);
-  return mat2(c, -s, s, c);
-}
-float hash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
-float noise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(
-    mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
-    mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-}
-float fbm(vec2 p) {
-  float v = 0.0; float a = 0.5;
-  for (int i = 0; i < 5; i++) {
-    v += a * noise(p); p *= 2.1; a *= 0.5;
-  }
-  return v;
-}
-float smin(float a, float b, float k) {
-  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
-  return mix(b, a, h) - k * h * (1.0 - h);
-}
-float sdSphere(vec3 p, float r) { return length(p) - r; }
-vec3 domainWarp(vec3 p, float t) {
-  vec3 q = p; float w = u_driftSpeed;
-  q.x += 0.35 * sin(q.y * 1.7 + q.z * 0.8 + t * w);
-  q.y += 0.25 * sin(q.z * 1.5 + q.x * 0.9 + t * w * 1.3);
-  q.z += 0.3 * sin(q.x * 1.2 + q.y * 1.1 + t * w * 0.9);
-  return q;
-}
-float sceneSDF(vec3 p0) {
-  vec3 p = domainWarp(p0, u_time);
-  float m = u_merge;
-  float tw = u_tentacleTwist;
-  float t = u_time * u_pulseSpeed;
-  float ang = atan(p.y, p.x);
-  float rPulse = u_riftSize * (1.0 + 0.12 * sin(ang * 6.0 + t * 2.0));
-  float eye = sdSphere(p, rPulse);
-  float tr = clamp(u_tentacleReveal, 0.0, 1.0);
-  float tr2 = tr * tr;
-  float tentHide = (1.0 - tr) * 88.0;
-  float reach = mix(0.22, 1.0, tr2);
-  float yCap = 0.38 + 3.42 * tr2;
-  vec3 tentRoot = u_tentacleBack * u_tentacleBackAmt + vec3(0.0, u_tentacleLift, 0.0);
-  vec3 pt = p - tentRoot;
-  float helix = tw * pt.y * 2.5 * mix(0.15, 1.0, tr2);
-  pt.xz *= rot2(helix + t * 0.15);
-  float d = eye;
-  int count = u_tentacleCount;
-  for (int i = 0; i < 12; i++) {
-    if (i >= count) break;
-    float fi = float(i);
-    float a = (2.0 * PI * fi) / float(count);
-    vec3 q = pt;
-    q.xz *= rot2(a + t * 0.08);
-    q.x -= (1.65 + 0.08 * sin(t + fi)) * reach;
-    float wave = 0.22 * sin(q.y * 3.2 + fi * 1.7 + t * 1.5) * tr;
-    q.z += wave;
-    q.x += 0.06 * sin(q.y * 5.0 + t) * tr;
-    float rad = (0.11 + 0.035 * sin(q.y * 7.0 + t * 2.5 + fi)) * mix(0.18, 1.0, max(tr, 0.001));
-    float cyl = length(q.xz) - rad;
-    float cap = max(cyl, abs(q.y) - yCap - 0.15 * sin(q.x * 4.0 + t));
-    d = smin(d, cap + tentHide, m * 1.15);
-  }
-  vec3 ps = (p - tentRoot * 0.85) * vec3(1.1, 1.4, 1.1);
-  ps.xz *= rot2(t * 0.2);
-  float tend = length(vec2(length(ps.xz) - 0.35 * reach, ps.y * 0.9)) - 0.04;
-  float ylim = mix(0.22, 2.2, tr2);
-  tend = max(tend - 0.02 * sin(ps.y * 12.0 + t * 3.0), abs(ps.y) - ylim);
-  d = smin(d, tend + tentHide, m * 0.6);
-  return d;
-}
-vec3 calcNormal(vec3 p) {
-  vec2 e = vec2(0.0015, 0.0);
-  float d = sceneSDF(p);
-  return normalize(vec3(
-    sceneSDF(p + e.xyy) - d,
-    sceneSDF(p + e.yxy) - d,
-    sceneSDF(p + e.yyx) - d
-  ));
-}
-vec3 eldritchColor(vec3 p, vec3 n, float glowAmt, float marchT) {
-  float t = u_time * u_pulseSpeed + u_colorShift;
-  float pulse = 0.5 + 0.5 * sin(length(p) * 4.0 + t * 2.0);
-  vec3 deep = vec3(0.02, 0.03, 0.06);
-  vec3 sick = vec3(0.12, 0.42, 0.28);
-  vec3 violet = vec3(0.35, 0.1, 0.45);
-  vec3 bile = vec3(0.25, 0.55, 0.35);
-  float nDot = 0.5 + 0.5 * dot(n, normalize(vec3(0.2, 0.85, 0.35)));
-  float cavity = 0.35 + 0.65 * fbm(p.xz * 2.5 + p.y);
-  vec3 base = mix(deep, mix(sick, violet, pulse * nDot), cavity);
-  base = mix(base, bile, glowAmt * 0.85);
-  float rim = pow(1.0 - max(dot(n, vec3(0.0, 0.0, 1.0)), 0.0), 3.0);
-  base += vec3(0.15, 0.45, 0.35) * rim * 0.4;
-  float fogMix = 1.0 - exp(-marchT * 0.045);
-  base = mix(base, deep * 1.2, fogMix * 0.5);
-  return base;
-}
-vec4 raymarch(vec3 ro, vec3 rd, vec2 fuv) {
-  float t = 0.0;
-  float glow = 0.0;
-  for (int i = 0; i < MAX_STEPS; i++) {
-    vec3 p = ro + rd * t;
-    float d = sceneSDF(p);
-    glow += u_fogDensity * 0.018 / (0.025 + d * d * 18.0);
-    t += d;
-    if (t > MAX_DIST) break;
-    if (d < SURF_DIST) {
-      vec3 n = calcNormal(p);
-      return vec4(eldritchColor(p, n, glow, t), t);
-    }
-  }
-  vec3 frac = texture2D(u_fractalBg, fuv).rgb;
-  vec2 sn = rd.xy * 40.0 + u_time * 0.02;
-  float stars = pow(noise(sn), 12.0) * 0.85;
-  float neb = fbm(rd.xz * 3.0 + u_time * u_driftSpeed * 0.1);
-  vec3 sky = mix(vec3(0.01, 0.015, 0.04), frac, clamp(u_fractalSkyMix, 0.0, 1.0));
-  sky += vec3(0.06, 0.02, 0.1) * neb * 0.28 * (1.0 - u_fractalSkyMix * 0.5);
-  sky += vec3(0.3, 0.45, 0.38) * stars * (1.0 - u_fractalSkyMix * 0.35);
-  vec3 col = sky + vec3(0.15, 0.55, 0.35) * glow * u_glowIntensity * 0.12;
-  return vec4(col, MAX_DIST);
-}
-void main() {
-  vec2 uv = (v_uv - 0.5) * 2.0;
-  uv.x *= u_resolution.x / u_resolution.y;
-  float orbit = u_time * u_orbitSpeed;
-  float camR = 4.1;
-  vec3 ro = vec3(camR * cos(orbit), 0.35 + 0.25 * sin(u_time * 0.2), camR * sin(orbit));
-  vec3 target = vec3(0.0, 0.1, 0.0);
-  vec3 f = normalize(target - ro);
-  vec3 r = normalize(cross(vec3(0.0, 1.0, 0.0), f));
-  vec3 u = cross(f, r);
-  vec3 rd = normalize(f + uv.x * r + uv.y * u);
-  vec4 hit = raymarch(ro, rd, v_uv);
-  vec3 col = hit.rgb;
-  float vig = 1.0 - length(v_uv - 0.5) * 1.15;
-  col *= vig;
-  float ca = length(v_uv - 0.5);
-  col.rb += vec2(0.02, 0.015) * ca;
-  col = col / (col + vec3(0.85));
-  col = pow(col, vec3(0.95));
-  gl_FragColor = vec4(col, 1.0);
 }
 </script>
 
@@ -1203,16 +990,6 @@ void main() {
         return;
     }
 
-    const bgVs = createShader(gl, gl.VERTEX_SHADER, document.getElementById("bg-vs").text);
-    const bgFs = createShader(gl, gl.FRAGMENT_SHADER, document.getElementById("bg-fs").text);
-    const bgProg = gl.createProgram();
-    gl.attachShader(bgProg, bgVs);
-    gl.attachShader(bgProg, bgFs);
-    gl.linkProgram(bgProg);
-    if (!gl.getProgramParameter(bgProg, gl.LINK_STATUS)) {
-        console.error("bg", gl.getProgramInfoLog(bgProg));
-    }
-
     const modelVs = createShader(gl, gl.VERTEX_SHADER, document.getElementById("model-vs").text);
     const modelFs = createShader(gl, gl.FRAGMENT_SHADER, document.getElementById("model-fs").text);
     const modelProg = gl.createProgram();
@@ -1239,32 +1016,6 @@ void main() {
         -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1
     ]), gl.STATIC_DRAW);
 
-    const dummyBlackTex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, dummyBlackTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-
-    const bgPosLoc = gl.getAttribLocation(bgProg, "a_position");
-    const uBgRes = gl.getUniformLocation(bgProg, "u_resolution");
-    const uBgTime = gl.getUniformLocation(bgProg, "u_time");
-    const uBgTwist = gl.getUniformLocation(bgProg, "u_tentacleTwist");
-    const uBgRift = gl.getUniformLocation(bgProg, "u_riftSize");
-    const uBgCount = gl.getUniformLocation(bgProg, "u_tentacleCount");
-    const uBgMerge = gl.getUniformLocation(bgProg, "u_merge");
-    const uBgFog = gl.getUniformLocation(bgProg, "u_fogDensity");
-    const uBgGlow = gl.getUniformLocation(bgProg, "u_glowIntensity");
-    const uBgPulse = gl.getUniformLocation(bgProg, "u_pulseSpeed");
-    const uBgHue = gl.getUniformLocation(bgProg, "u_colorShift");
-    const uBgOrbit = gl.getUniformLocation(bgProg, "u_orbitSpeed");
-    const uBgDrift = gl.getUniformLocation(bgProg, "u_driftSpeed");
-    const uBgTentBack = gl.getUniformLocation(bgProg, "u_tentacleBack");
-    const uBgTentLift = gl.getUniformLocation(bgProg, "u_tentacleLift");
-    const uBgTentAmt = gl.getUniformLocation(bgProg, "u_tentacleBackAmt");
-    const uBgTentReveal = gl.getUniformLocation(bgProg, "u_tentacleReveal");
-    const uBgFractal = gl.getUniformLocation(bgProg, "u_fractalBg");
-    const uBgFractMix = gl.getUniformLocation(bgProg, "u_fractalSkyMix");
 
     const mfPosLoc = gl.getAttribLocation(mfProg, "a_position");
     const uMfRes = gl.getUniformLocation(mfProg, "u_resolution");
@@ -1315,16 +1066,6 @@ void main() {
     let camDistMul = 1.35;
 
     const defaults = {
-        tentacleTwist: 0.45,
-        riftSize: 0.55,
-        tentacleCount: 8,
-        merge: 0.28,
-        fogDensity: 0.42,
-        glowIntensity: 1.15,
-        pulseSpeed: 0.65,
-        colorShift: 0.0,
-        orbitSpeed: 0.12,
-        driftSpeed: 0.18,
         quality: 0.45,
         modelScale: 1.0,
         modelYaw: 0.0,
@@ -1336,7 +1077,9 @@ void main() {
         effectMode: "shards",
         explodeAmt: 0,
         shardSpin: 0.9,
-        burstPulse: 0.25
+        burstPulse: 0.25,
+        edgeWidth: 0.035,
+        edgeColor: "#61ebb8"
     };
     let params = { ...defaults };
 
@@ -1447,8 +1190,6 @@ void main() {
     const animChannels = {
         burstPulse: makeChannel(0.05, 1, 0.25),
         explodeAmt: makeChannel(0, 1, 0),
-        tentacleCount: makeChannel(4, 12, 8),
-        orbitSpeed: makeChannel(0.04, 0.78, 0.12),
         dispFreq: makeChannel(0.5, 12, 3.5)
     };
 
@@ -1462,8 +1203,6 @@ void main() {
         shardSpin: 0,
         burstPulse: 0.25,
         explodeAmt: 0,
-        tentacleCount: 8,
-        orbitSpeed: 0.12,
         dispFreq: 3.5
     };
 
@@ -1527,17 +1266,12 @@ void main() {
         params.explodeAmt = inHold
             ? 0
             : live.explodeAmt * burstAmountEnvelope(burstMu);
-        params.tentacleCount = Math.round(live.tentacleCount);
-        params.tentacleCount = Math.min(12, Math.max(4, params.tentacleCount));
-        params.orbitSpeed = live.orbitSpeed;
         params.dispFreq = live.dispFreq;
 
         const sync = [
             ["shardSpin", 2],
             ["burstPulse", 2],
             ["explodeAmt", 2],
-            ["tentacleCount", 0],
-            ["orbitSpeed", 2],
             ["dispFreq", 2],
             ["modelYaw", 2]
         ];
@@ -1553,6 +1287,8 @@ void main() {
         }
     }
 
+    let animEnabled = true;
+
     function setupControls() {
         const bind = (id, key, intVal) => {
             const input = document.getElementById(id);
@@ -1563,16 +1299,6 @@ void main() {
                 if (display) display.textContent = intVal ? String(v) : v.toFixed(2);
             });
         };
-        bind("tentacleTwist", "tentacleTwist");
-        bind("riftSize", "riftSize");
-        bind("tentacleCount", "tentacleCount", true);
-        bind("merge", "merge");
-        bind("fogDensity", "fogDensity");
-        bind("glowIntensity", "glowIntensity");
-        bind("pulseSpeed", "pulseSpeed");
-        bind("colorShift", "colorShift");
-        bind("orbitSpeed", "orbitSpeed");
-        bind("driftSpeed", "driftSpeed");
         bind("quality", "quality");
         bind("modelScale", "modelScale");
         bind("modelYaw", "modelYaw");
@@ -1584,6 +1310,23 @@ void main() {
         bind("explodeAmt", "explodeAmt");
         bind("shardSpin", "shardSpin");
         bind("burstPulse", "burstPulse");
+        bind("edgeWidth", "edgeWidth");
+
+        // Animation toggle
+        const animCheckbox = document.getElementById("animToggle");
+        if (animCheckbox) {
+            animCheckbox.addEventListener("change", (e) => {
+                animEnabled = e.target.checked;
+            });
+        }
+
+        // Edge color picker
+        const edgeColorInput = document.getElementById("edgeColor");
+        if (edgeColorInput) {
+            edgeColorInput.addEventListener("input", (e) => {
+                params.edgeColor = e.target.value;
+            });
+        }
 
         function syncEffectPanels() {
             const shards = params.effectMode === "shards";
@@ -1616,6 +1359,11 @@ void main() {
                 }
             });
             document.getElementById("effectMode").value = params.effectMode;
+            const edgeCEl = document.getElementById("edgeColor");
+            if (edgeCEl) edgeCEl.value = params.edgeColor;
+            const edgeWEl = document.getElementById("edgeWidth");
+            const edgeWValEl = document.getElementById("edgeWidthValue");
+            if (edgeWEl) { edgeWEl.value = params.edgeWidth; if (edgeWValEl) edgeWValEl.textContent = params.edgeWidth.toFixed(3); }
             syncEffectPanels();
         });
     }
@@ -1645,13 +1393,8 @@ void main() {
         clickFlash: 0
     };
     const pointerEffect = {
-        hueAdd: 0,
-        glowAdd: 0,
-        riftAdd: 0,
         burstAdd: 0,
-        driftAdd: 0,
         dispAmpAdd: 0,
-        mergeAdd: 0,
         fractPanX: 0,
         fractPanY: 0,
         fractZoomAdd: 0,
@@ -1853,13 +1596,8 @@ void main() {
         pointer.clickFlash *= 0.88;
         const px = pointer.nx;
         const py = pointer.ny;
-        pointerEffect.hueAdd = (px - 0.5) * 1.8;
-        pointerEffect.glowAdd = (0.5 - py) * 0.55 + pointer.clickFlash * 0.9;
-        pointerEffect.riftAdd = (py - 0.5) * 0.14;
         pointerEffect.burstAdd = (py - 0.5) * 0.28 + (pointer.down ? 0.08 : 0);
-        pointerEffect.driftAdd = (px - 0.5) * 0.22;
         pointerEffect.dispAmpAdd = (1 - py) * 0.035;
-        pointerEffect.mergeAdd = pointer.down ? 0.035 : 0;
         pointerEffect.fractPanX = (px - 0.5) * 0.38;
         pointerEffect.fractPanY = (py - 0.5) * 0.32;
         pointerEffect.fractZoomAdd = (0.5 - py) * 3.8;
@@ -1889,43 +1627,6 @@ void main() {
         redRot: -0.04,
         palette: 1
     };
-    let fractalFbo = null;
-    let fractalTex = null;
-    let fractalFbW = 0;
-    let fractalFbH = 0;
-
-    function createFractalFbo(w, h) {
-        const fb = gl.createFramebuffer();
-        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-        const tex = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, tex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-        const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        gl.bindTexture(gl.TEXTURE_2D, null);
-        return ok ? { fb, tex } : null;
-    }
-
-    function ensureFractalFbo(w, h) {
-        if (w < 1 || h < 1) return;
-        if (fractalFbo && fractalFbW === w && fractalFbH === h) return;
-        if (fractalTex) {
-            gl.deleteTexture(fractalTex);
-            gl.deleteFramebuffer(fractalFbo);
-        }
-        const built = createFractalFbo(w, h);
-        if (!built) return;
-        fractalFbo = built.fb;
-        fractalTex = built.tex;
-        fractalFbW = w;
-        fractalFbH = h;
-    }
-
     function updateFractalBaseAnimations(t) {
         const s = Math.sin(t * 0.22);
         const c = Math.cos(t * 0.17);
@@ -1937,16 +1638,10 @@ void main() {
         fractalBase.colorOffset = 3.1 + 0.45 * c;
     }
 
-    function drawMultifractalPass(w, h, timeSec) {
-        ensureFractalFbo(w, h);
-        if (!fractalTex) return;
+    function drawFractalBackground(w, h, timeSec) {
+        if (animEnabled) updateLiveParams(performance.now() / 1000);
+        updatePointerForFrame();
         updateFractalBaseAnimations(timeSec);
-        gl.bindFramebuffer(gl.FRAMEBUFFER, fractalFbo);
-        gl.viewport(0, 0, w, h);
-        gl.disable(gl.DEPTH_TEST);
-        gl.depthMask(false);
-        gl.clearColor(0, 0, 0, 1);
-        gl.clear(gl.COLOR_BUFFER_BIT);
         gl.useProgram(mfProg);
         gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
         gl.enableVertexAttribArray(mfPosLoc);
@@ -1967,59 +1662,17 @@ void main() {
         gl.uniform1i(uMfMaxIter, fractalBase.maxIter);
         gl.uniform1f(uMfRot, rot);
         gl.uniform1f(uMfEscape, fractalBase.escapeR);
-        gl.uniform1f(uMfColorOff, fractalBase.colorOffset + pointer.clickFlash * 0.4);
-        gl.uniform1f(uMfColorSpeed, Math.min(50, fractalBase.colorSpeed + pointerEffect.fractColorSpeed));
+        gl.uniform1f(uMfColorOff, fractalBase.colorOffset + pointerEffect.fractColorSpeed * 0.1);
+        gl.uniform1f(uMfColorSpeed, fractalBase.colorSpeed + pointerEffect.fractColorSpeed);
         gl.uniform1f(uMfColorInt, fractalBase.colorIntensity);
         gl.uniform1i(uMfJuliaMode, fractalBase.juliaMode);
         gl.uniform2f(uMfJuliaC, jc0, jc1);
-        gl.uniform2f(uMfJuliaC2, j2x, fractalBase.juliaC2[1]);
-        gl.uniform2f(uMfJuliaC3, j3x, fractalBase.juliaC3[1]);
+        gl.uniform2f(uMfJuliaC2, j2x, fractalBase.juliaC2[1] + pointerEffect.fractJuliaY * 0.7);
+        gl.uniform2f(uMfJuliaC3, j3x, fractalBase.juliaC3[1] + pointerEffect.fractJuliaY * 0.5);
         gl.uniform1f(uMfGreenRot, fractalBase.greenRot + pointerEffect.fractGreenRot);
         gl.uniform1f(uMfRedRot, fractalBase.redRot + pointerEffect.fractRedRot);
         gl.uniform1f(uMfTime, timeSec);
         gl.uniform1i(uMfPalette, fractalBase.palette);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    }
-
-    function drawBackground(w, h, time) {
-        updateLiveParams(performance.now() / 1000);
-        updatePointerForFrame();
-        drawMultifractalPass(w, h, time);
-        gl.useProgram(bgProg);
-        gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
-        gl.enableVertexAttribArray(bgPosLoc);
-        gl.vertexAttribPointer(bgPosLoc, 2, gl.FLOAT, false, 0, 0);
-        gl.uniform2f(uBgRes, w, h);
-        gl.uniform1f(uBgTime, time);
-        gl.uniform1f(uBgTwist, params.tentacleTwist);
-        gl.uniform1f(uBgRift, Math.min(1.2, Math.max(0.2, params.riftSize + pointerEffect.riftAdd)));
-        gl.uniform1i(uBgCount, params.tentacleCount);
-        gl.uniform1f(uBgMerge, Math.min(0.6, Math.max(0.05, params.merge + pointerEffect.mergeAdd)));
-        gl.uniform1f(uBgFog, params.fogDensity);
-        gl.uniform1f(uBgGlow, Math.min(2.5, Math.max(0.2, params.glowIntensity + pointerEffect.glowAdd)));
-        gl.uniform1f(uBgPulse, params.pulseSpeed);
-        gl.uniform1f(uBgHue, params.colorShift + pointerEffect.hueAdd);
-        gl.uniform1f(uBgOrbit, params.orbitSpeed);
-        gl.uniform1f(uBgDrift, Math.min(1, Math.max(0, params.driftSpeed + pointerEffect.driftAdd)));
-        const orb = time * params.orbitSpeed;
-        const camR = 4.1;
-        const rox = camR * Math.cos(orb);
-        const roy = 0.35 + 0.25 * Math.sin(time * 0.2);
-        const roz = camR * Math.sin(orb);
-        const vx = rox;
-        const vy = roy - 0.1;
-        const vz = roz;
-        const vlen = Math.hypot(vx, vy, vz) || 1;
-        gl.uniform3f(uBgTentBack, -vx / vlen, -vy / vlen, -vz / vlen);
-        const lift = 0.12 + 0.72 * (0.5 + 0.5 * Math.sin(time * 0.42 + 0.8));
-        gl.uniform1f(uBgTentLift, lift);
-        gl.uniform1f(uBgTentAmt, 2.15);
-        gl.uniform1f(uBgTentReveal, params.explodeAmt);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, fractalTex || dummyBlackTex);
-        gl.uniform1i(uBgFractal, 0);
-        gl.uniform1f(uBgFractMix, fractalTex ? 0.72 : 0.0);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
@@ -2092,8 +1745,12 @@ void main() {
         gl.uniform1f(uExplodeAmt, params.explodeAmt);
         gl.uniform1f(uShardSpin, params.shardSpin);
         gl.uniform1f(uBurstPulse, Math.min(1, Math.max(0, params.burstPulse + pointerEffect.burstAdd)));
-        gl.uniform3f(uEdgeColor, 0.38, 0.92, 0.72);
-        gl.uniform1f(uEdgeWidth, 0.035);
+        const ec = params.edgeColor || "#61ebb8";
+        const r = parseInt(ec.slice(1,3),16)/255;
+        const g2 = parseInt(ec.slice(3,5),16)/255;
+        const b2 = parseInt(ec.slice(5,7),16)/255;
+        gl.uniform3f(uEdgeColor, r, g2, b2);
+        gl.uniform1f(uEdgeWidth, params.edgeWidth !== undefined ? params.edgeWidth : 0.035);
         gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
     }
 
@@ -2116,7 +1773,7 @@ void main() {
 
         gl.disable(gl.DEPTH_TEST);
         gl.depthMask(false);
-        drawBackground(targetWidth, targetHeight, time);
+        drawFractalBackground(targetWidth, targetHeight, time);
 
         gl.depthMask(true);
         gl.enable(gl.DEPTH_TEST);
