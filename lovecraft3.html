@@ -184,7 +184,7 @@
 
         <div class="control-group">
             <label for="quality">Quality (resolution):</label>
-            <input type="range" id="quality" min="0.15" max="1.0" step="0.05" value="0.45">
+            <input type="range" id="quality" min="0.15" max="1.0" step="0.05" value="1.0">
             <span class="value-display" id="qualityValue">0.45</span>
         </div>
 
@@ -205,8 +205,8 @@
         </div>
         <div class="control-group">
             <label for="planeDisp">Height displacement:</label>
-            <input type="range" id="planeDisp" min="0" max="0.5" step="0.01" value="0.18">
-            <span class="value-display" id="planeDispValue">0.18</span>
+            <input type="range" id="planeDisp" min="0" max="0.5" step="0.01" value="0.5">
+            <span class="value-display" id="planeDispValue">0.50</span>
         </div>
         <div class="control-group">
             <label for="planeFractalSpeed">Fractal speed:</label>
@@ -231,8 +231,8 @@
         </div>
         <div class="control-group">
             <label for="skyboxDisp">Wall displacement:</label>
-            <input type="range" id="skyboxDisp" min="0" max="0.3" step="0.01" value="0.12">
-            <span class="value-display" id="skyboxDispValue">0.12</span>
+            <input type="range" id="skyboxDisp" min="0" max="0.5" step="0.01" value="0.5">
+            <span class="value-display" id="skyboxDispValue">0.50</span>
         </div>
         <div class="control-group">
             <label for="skyboxFractalSpeed">Fractal speed:</label>
@@ -255,6 +255,7 @@
                 <option value="linear">Linear (pure add)</option>
                 <option value="subtract">Subtract</option>
                 <option value="difference">Difference</option>
+                <option value="darken">Darken</option>
             </select>
         </div>
 
@@ -1295,6 +1296,7 @@ void main() {
 
     const canvas = document.querySelector("canvas");
     const gl = canvas.getContext("webgl", { alpha: false, antialias: true });
+    const extBlendMinMax = gl ? gl.getExtension("EXT_blend_minmax") : null;
     if (!gl) {
         statusEl.textContent = "WebGL not available";
         statusEl.classList.add("error");
@@ -1450,7 +1452,7 @@ void main() {
     let camDistMul = 1.35;
 
     const defaults = {
-        quality: 0.45,
+        quality: 1.0,
         modelScale: 1.0,
         modelYaw: 0.0,
         camDist: 1.4,
@@ -1471,13 +1473,13 @@ void main() {
         planeVisible: true,
         planeScale: 2.5,
         planeY: -1.0,
-        planeDisp: 0.18,
+        planeDisp: 0.5,
         planeFractalSpeed: 0.6,
         planeAlpha: 0.92,
         // Skybox
         skyboxVisible: true,
         skyboxSize: 3.5,
-        skyboxDisp: 0.12,
+        skyboxDisp: 0.5,
         skyboxFractalSpeed: 0.5,
         skyboxAlpha: 0.85,
         skyboxBlendMode: "normal",
@@ -2256,6 +2258,14 @@ void main() {
         } else if (bm === "difference") {
             gl.blendEquation(gl.FUNC_REVERSE_SUBTRACT);
             gl.blendFunc(gl.ONE, gl.ONE);                            // Difference: abs(src-dst)
+        } else if (bm === "darken") {
+            if (extBlendMinMax) {
+                gl.blendEquation(extBlendMinMax.MIN_EXT);            // Darken: per-channel min
+                gl.blendFunc(gl.ONE, gl.ONE);
+            } else {
+                gl.blendEquation(gl.FUNC_ADD);
+                gl.blendFunc(gl.DST_COLOR, gl.ZERO);                 // Fallback: multiply
+            }
         } else {
             gl.blendEquation(gl.FUNC_ADD);
             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);     // Normal alpha blend
