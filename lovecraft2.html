@@ -1106,8 +1106,8 @@ void main() {
     //   Phase A (4 s): explodeAmt 0.13 → 1.0   easeInBounce
     //   Phase B (2 s): explodeAmt 1.0  → 0.0   easeInBounce
     //   Phase C (1 s): explodeAmt 0.0  → 0.13  easeInElastic
-    const BURST_PHASE_A = 4, BURST_PHASE_B = 2, BURST_PHASE_C = 1;
-    const BURST_CYCLE = BURST_PHASE_A + BURST_PHASE_B + BURST_PHASE_C; // 7 s
+    const BURST_PHASE_A = 40, BURST_PHASE_B = 20, BURST_PHASE_C = 10;
+    const BURST_CYCLE = BURST_PHASE_A + BURST_PHASE_B + BURST_PHASE_C; // 70 s
 
     let burstCycleStart = performance.now() / 1000;
 
