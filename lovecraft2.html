@@ -219,6 +219,32 @@
             <span class="value-display" id="planeAlphaValue">0.92</span>
         </div>
 
+        <h3>Skybox</h3>
+        <div class="control-group">
+            <label for="skyboxVisible">Show skybox:</label>
+            <input type="checkbox" id="skyboxVisible" checked style="width:auto;cursor:pointer;">
+        </div>
+        <div class="control-group">
+            <label for="skyboxSize">Skybox size:</label>
+            <input type="range" id="skyboxSize" min="1.0" max="8.0" step="0.1" value="3.5">
+            <span class="value-display" id="skyboxSizeValue">3.50</span>
+        </div>
+        <div class="control-group">
+            <label for="skyboxDisp">Wall displacement:</label>
+            <input type="range" id="skyboxDisp" min="0" max="0.3" step="0.01" value="0.12">
+            <span class="value-display" id="skyboxDispValue">0.12</span>
+        </div>
+        <div class="control-group">
+            <label for="skyboxFractalSpeed">Fractal speed:</label>
+            <input type="range" id="skyboxFractalSpeed" min="0" max="3" step="0.05" value="0.5">
+            <span class="value-display" id="skyboxFractalSpeedValue">0.50</span>
+        </div>
+        <div class="control-group">
+            <label for="skyboxAlpha">Opacity:</label>
+            <input type="range" id="skyboxAlpha" min="0.05" max="1.0" step="0.05" value="0.85">
+            <span class="value-display" id="skyboxAlphaValue">0.85</span>
+        </div>
+
         <button id="resetBtn" class="reset-btn">Reset to default</button>
     </div>
     <button id="toggleControls" title="Toggle controls">⚙️</button>
@@ -811,10 +837,15 @@ uniform float u_planeFractalSpeed;
 uniform float u_planeAlpha;
 uniform float u_colorOffset;
 uniform float u_colorSpeed;
+uniform float u_domainRotation;
 
 void main() {
   // Map UV [0,1] → fractal domain [-1.8, 1.8]
   vec2 c  = (v_uv * 2.0 - 1.0) * 1.8;
+  // Per-face domain rotation — gives each skybox face a distinct fractal orientation
+  float cosR = cos(u_domainRotation);
+  float sinR = sin(u_domainRotation);
+  c = vec2(c.x * cosR - c.y * sinR, c.x * sinR + c.y * cosR);
   float t = u_time * u_planeFractalSpeed;
   vec2 jc = u_juliaC + vec2(cos(t * 0.22) * 0.05, sin(t * 0.19) * 0.04);
 
@@ -889,6 +920,28 @@ void main() {
         const m = new Float32Array(16);
         m[0] = c; m[2] = s; m[5] = 1;
         m[8] = -s; m[10] = c; m[15] = 1;
+        return m;
+    }
+
+    // Rotation around X axis (column-major, right-handed)
+    function rotationXMat4(angle) {
+        const c = Math.cos(angle), s = Math.sin(angle);
+        const m = new Float32Array(16);
+        m[0] = 1;
+        m[5] = c;  m[6] = s;
+        m[9] = -s; m[10] = c;
+        m[15] = 1;
+        return m;
+    }
+
+    // Rotation around Z axis (column-major, right-handed)
+    function rotationZMat4(angle) {
+        const c = Math.cos(angle), s = Math.sin(angle);
+        const m = new Float32Array(16);
+        m[0] = c;  m[1] = s;
+        m[4] = -s; m[5] = c;
+        m[10] = 1;
+        m[15] = 1;
         return m;
     }
 
@@ -1317,6 +1370,7 @@ void main() {
     const uPlaneAlpha  = gl.getUniformLocation(planeProg, "u_planeAlpha");
     const uPlaneColOff = gl.getUniformLocation(planeProg, "u_colorOffset");
     const uPlaneColSpd = gl.getUniformLocation(planeProg, "u_colorSpeed");
+    const uPlaneDomRot = gl.getUniformLocation(planeProg, "u_domainRotation");
 
     // ── Plane mesh (64×64 subdivided grid) ──────────────────────────────────
     function createPlaneMesh(n) {
@@ -1390,7 +1444,13 @@ void main() {
         planeY: -1.0,
         planeDisp: 0.18,
         planeFractalSpeed: 0.6,
-        planeAlpha: 0.92
+        planeAlpha: 0.92,
+        // Skybox
+        skyboxVisible: true,
+        skyboxSize: 3.5,
+        skyboxDisp: 0.12,
+        skyboxFractalSpeed: 0.5,
+        skyboxAlpha: 0.85
     };
     let params = { ...defaults };
 
@@ -1488,6 +1548,17 @@ void main() {
             });
         }
 
+        bind("skyboxSize", "skyboxSize");
+        bind("skyboxDisp", "skyboxDisp");
+        bind("skyboxFractalSpeed", "skyboxFractalSpeed");
+        bind("skyboxAlpha", "skyboxAlpha");
+        const skyboxVisCheckbox = document.getElementById("skyboxVisible");
+        if (skyboxVisCheckbox) {
+            skyboxVisCheckbox.addEventListener("change", (e) => {
+                params.skyboxVisible = e.target.checked;
+            });
+        }
+
         // Animation toggle
         const animCheckbox = document.getElementById("animToggle");
         if (animCheckbox) {
@@ -1547,6 +1618,8 @@ void main() {
             if (edgeWEl) { edgeWEl.value = params.edgeWidth; if (edgeWValEl) edgeWValEl.textContent = params.edgeWidth.toFixed(3); }
             const planeVisEl = document.getElementById("planeVisible");
             if (planeVisEl) planeVisEl.checked = params.planeVisible;
+            const skyboxVisEl = document.getElementById("skyboxVisible");
+            if (skyboxVisEl) skyboxVisEl.checked = params.skyboxVisible;
             syncEffectPanels();
         });
     }
@@ -1995,6 +2068,7 @@ void main() {
         gl.uniform1f(uPlaneAlpha,  alpha);
         gl.uniform1f(uPlaneColOff, fractalBase.colorOffset);
         gl.uniform1f(uPlaneColSpd, fractalBase.colorSpeed);
+        gl.uniform1f(uPlaneDomRot, 0.0); // floor plane: no domain rotation
 
         // Alpha blend if not fully opaque
         if (alpha < 1.0) {
@@ -2010,7 +2084,95 @@ void main() {
         gl.enable(gl.CULL_FACE);
     }
 
-    function render() {
+    // ── Skybox — 6 Julia fractal planes arranged as a cube ─────────────────
+    function drawSkybox(w, h, time) {
+        const aspect  = w / h;
+        const proj    = perspective(Math.PI / 4, aspect, 0.05, 80);
+        const orbitT  = time * 0.35 + pointerEffect.orbitPhaseAdd;
+        const dist    = baseRadius * camDistMul * params.camDist;
+        const eye     = [
+            worldCenter[0] + Math.cos(orbitT) * dist * 0.85,
+            worldCenter[1] + 0.25 * dist,
+            worldCenter[2] + Math.sin(orbitT) * dist * 0.85
+        ];
+        const view = lookAtView(eye, worldCenter, [0, 1, 0]);
+
+        const halfSky = params.skyboxSize !== undefined ? params.skyboxSize : 3.5;
+        const cx = worldCenter[0], cy = worldCenter[1], cz = worldCenter[2];
+        // Uniform scale so the displacement magnitude is consistent across all faces
+        const Sc = scaleMat4(halfSky, halfSky, halfSky);
+
+        // Each entry: [modelMatrix, juliaC x-offset, juliaC y-offset, domain rotation (rad)]
+        // Domain rotations give each face a distinct fractal orientation.
+        // Face normals point inward: local +Y is rotated to be the inward direction.
+        const PI = Math.PI;
+        const faces = [
+            // Bottom  (Y = cy - halfSky)  local Y → world +Y (inward)
+            [multiplyMat4(translationMat4(cx, cy - halfSky, cz), Sc),
+             0.00,  0.00,  0.0],
+            // Top     (Y = cy + halfSky)  rotX(π) → local Y → world -Y (inward)
+            [multiplyMat4(translationMat4(cx, cy + halfSky, cz), multiplyMat4(Sc, rotationXMat4(PI))),
+             0.05,  0.02,  PI],
+            // Front   (Z = cz + halfSky)  rotX(-π/2) → local Y → world -Z (inward)
+            [multiplyMat4(translationMat4(cx, cy, cz + halfSky), multiplyMat4(Sc, rotationXMat4(-PI / 2))),
+            -0.05,  0.03,  PI / 2],
+            // Back    (Z = cz - halfSky)  rotX(+π/2) → local Y → world +Z (inward)
+            [multiplyMat4(translationMat4(cx, cy, cz - halfSky), multiplyMat4(Sc, rotationXMat4(PI / 2))),
+             0.03, -0.04, -PI / 2],
+            // Right   (X = cx + halfSky)  rotZ(+π/2) → local Y → world -X (inward)
+            [multiplyMat4(translationMat4(cx + halfSky, cy, cz), multiplyMat4(Sc, rotationZMat4(PI / 2))),
+             0.02,  0.05,  PI / 4],
+            // Left    (X = cx - halfSky)  rotZ(-π/2) → local Y → world +X (inward)
+            [multiplyMat4(translationMat4(cx - halfSky, cy, cz), multiplyMat4(Sc, rotationZMat4(-PI / 2))),
+            -0.03, -0.02, -PI / 4],
+        ];
+
+        const alpha  = params.skyboxAlpha          !== undefined ? params.skyboxAlpha          : 0.85;
+        const disp   = params.skyboxDisp            !== undefined ? params.skyboxDisp            : 0.12;
+        const fspd   = params.skyboxFractalSpeed    !== undefined ? params.skyboxFractalSpeed    : 0.5;
+        const jBaseX = fractalBase.juliaC[0] + pointerEffect.fractJuliaX;
+        const jBaseY = fractalBase.juliaC[1] + pointerEffect.fractJuliaY;
+
+        // Bind buffers + set uniforms shared by all 6 faces
+        gl.useProgram(planeProg);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, planeMesh.xyBuf);
+        gl.enableVertexAttribArray(pXY);
+        gl.vertexAttribPointer(pXY, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, planeMesh.uvBuf);
+        gl.enableVertexAttribArray(pUV);
+        gl.vertexAttribPointer(pUV, 2, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, planeMesh.idxBuf);
+
+        gl.uniform1f(uPlaneTime,   time);
+        gl.uniform1f(uPlaneDisp,   disp);
+        gl.uniform1f(uPlaneFSpd,   fspd);
+        gl.uniform1f(uPlaneAlpha,  alpha);
+        gl.uniform1f(uPlaneColOff, fractalBase.colorOffset);
+        gl.uniform1f(uPlaneColSpd, fractalBase.colorSpeed);
+
+        if (alpha < 1.0) {
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        }
+        // Both sides must be visible (camera is inside the box)
+        gl.disable(gl.CULL_FACE);
+
+        for (let i = 0; i < faces.length; i++) {
+            const [faceModel, jdx, jdy, domRot] = faces[i];
+            const mv  = multiplyMat4(view, faceModel);
+            const mvp = multiplyMat4(proj, mv);
+            gl.uniformMatrix4fv(uPlaneMvp,    false, mvp);
+            gl.uniform2f(uPlaneJuliaC, jBaseX + jdx, jBaseY + jdy);
+            gl.uniform1f(uPlaneDomRot, domRot);
+            gl.drawElements(gl.TRIANGLES, planeMesh.indexCount, gl.UNSIGNED_SHORT, 0);
+        }
+
+        if (alpha < 1.0) gl.disable(gl.BLEND);
+        gl.enable(gl.CULL_FACE);
+    }
         const displayWidth = canvas.clientWidth;
         const displayHeight = canvas.clientHeight;
         const targetWidth = Math.floor(displayWidth * params.quality);
@@ -2037,7 +2199,12 @@ void main() {
         gl.enable(gl.CULL_FACE);
         gl.cullFace(gl.BACK);
 
-        // Draw fractal plane before the model so depth-test works correctly
+        // Skybox first (farthest 3-D geometry, no alpha issues)
+        if (params.skyboxVisible) {
+            drawSkybox(targetWidth, targetHeight, time);
+        }
+
+        // Fractal floor plane (semi-transparent, after opaque skybox)
         if (params.planeVisible) {
             drawFractalPlane(targetWidth, targetHeight, time);
         }
