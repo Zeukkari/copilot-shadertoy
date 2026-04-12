@@ -103,8 +103,8 @@
         </div>
         <div class="control-group">
             <label for="camDist">Camera distance:</label>
-            <input type="range" id="camDist" min="0.6" max="3.5" step="0.02" value="2.7">
-            <span class="value-display" id="camDistValue">2.70</span>
+            <input type="range" id="camDist" min="0.6" max="3.5" step="0.02" value="1.4">
+            <span class="value-display" id="camDistValue">1.40</span>
         </div>
 
         <h3>Animation</h3>
@@ -124,8 +124,8 @@
         </div>
         <div class="control-group" id="shardControls">
             <label for="explodeAmt">Burst amount:</label>
-            <input type="range" id="explodeAmt" min="0" max="1" step="0.01" value="0.13">
-            <span class="value-display" id="explodeAmtValue">0.13</span>
+            <input type="range" id="explodeAmt" min="0" max="0.07" step="0.002" value="0">
+            <span class="value-display" id="explodeAmtValue">0.00</span>
         </div>
         <div class="control-group" id="shardControls2">
             <label for="shardSpin">Shard spin:</label>
@@ -252,6 +252,9 @@
                 <option value="screen">Screen</option>
                 <option value="multiply">Multiply</option>
                 <option value="softadd">Soft Add</option>
+                <option value="linear">Linear (pure add)</option>
+                <option value="subtract">Subtract</option>
+                <option value="difference">Difference</option>
             </select>
         </div>
 
@@ -1450,13 +1453,13 @@ void main() {
         quality: 0.45,
         modelScale: 1.0,
         modelYaw: 0.0,
-        camDist: 2.7,
+        camDist: 1.4,
         dispAmp: 0.04,
         dispFreq: 3.5,
         dispSpeed: 1.2,
         dispCrest: 1.0,
         effectMode: "shards",
-        explodeAmt: 0.13,
+        explodeAmt: 0.0,
         shardSpin: 0,
         burstPulse: 1,
         edgeWidth: 0.035,
@@ -1504,12 +1507,11 @@ void main() {
         return -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * c4);
     }
 
-    // Three-phase burst cycle (repeating, total 7 s):
-    //   Phase A (4 s): explodeAmt 0.13 → 1.0   easeInBounce
-    //   Phase B (2 s): explodeAmt 1.0  → 0.0   easeInBounce
-    //   Phase C (1 s): explodeAmt 0.0  → 0.13  easeInElastic
-    const BURST_PHASE_A = 40, BURST_PHASE_B = 20, BURST_PHASE_C = 10;
-    const BURST_CYCLE = BURST_PHASE_A + BURST_PHASE_B + BURST_PHASE_C; // 70 s
+    // Two-phase burst cycle (repeating, total 70 s):
+    //   Phase A (40 s): explodeAmt 0.0 → 0.07  easeInBounce
+    //   Phase B (30 s): explodeAmt 0.07 → 0.0  easeInBounce
+    const BURST_PHASE_A = 40, BURST_PHASE_B = 30;
+    const BURST_CYCLE = BURST_PHASE_A + BURST_PHASE_B; // 70 s
 
     let burstCycleStart = performance.now() / 1000;
 
@@ -1523,20 +1525,24 @@ void main() {
         let explodeAmt;
         if (elapsed < BURST_PHASE_A) {
             const mu = elapsed / BURST_PHASE_A;
-            explodeAmt = 0.13 + (1.0 - 0.13) * easeInBounce(mu);
-        } else if (elapsed < BURST_PHASE_A + BURST_PHASE_B) {
-            const mu = (elapsed - BURST_PHASE_A) / BURST_PHASE_B;
-            explodeAmt = 1.0 * (1.0 - easeInBounce(mu));
+            explodeAmt = 0.07 * easeInBounce(mu);
         } else {
-            const mu = (elapsed - BURST_PHASE_A - BURST_PHASE_B) / BURST_PHASE_C;
-            explodeAmt = Math.max(0, 0.13 * easeInElastic(mu));
+            const mu = (elapsed - BURST_PHASE_A) / BURST_PHASE_B;
+            explodeAmt = 0.07 * (1.0 - easeInBounce(mu));
         }
 
         params.explodeAmt = explodeAmt;
 
         const el = document.getElementById("explodeAmt");
         const disp = document.getElementById("explodeAmtValue");
-        if (el) { el.value = explodeAmt; if (disp) disp.textContent = explodeAmt.toFixed(2); }
+        if (el) { el.value = explodeAmt; if (disp) disp.textContent = explodeAmt.toFixed(3); }
+
+        // Animate shard spin: slow sinusoidal sweep 0 → 2.4 → 0 (~35 s period)
+        const spin = 1.2 + 1.2 * Math.sin(nowSec * 0.18);
+        params.shardSpin = spin;
+        const spinEl = document.getElementById("shardSpin");
+        const spinDisp = document.getElementById("shardSpinValue");
+        if (spinEl) { spinEl.value = spin; if (spinDisp) spinDisp.textContent = spin.toFixed(2); }
     }
 
     let animEnabled = true;
@@ -2230,14 +2236,28 @@ void main() {
         gl.enable(gl.BLEND);
         const bm = params.skyboxBlendMode || "normal";
         if (bm === "add") {
+            gl.blendEquation(gl.FUNC_ADD);
             gl.blendFunc(gl.SRC_ALPHA, gl.ONE);                      // Additive: light accumulates
         } else if (bm === "screen") {
+            gl.blendEquation(gl.FUNC_ADD);
             gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_COLOR);            // Screen: brightens
         } else if (bm === "multiply") {
+            gl.blendEquation(gl.FUNC_ADD);
             gl.blendFunc(gl.DST_COLOR, gl.ZERO);                     // Multiply: darkens
         } else if (bm === "softadd") {
+            gl.blendEquation(gl.FUNC_ADD);
             gl.blendFunc(gl.ONE_MINUS_DST_COLOR, gl.ONE);            // Soft add: gentle glow
+        } else if (bm === "linear") {
+            gl.blendEquation(gl.FUNC_ADD);
+            gl.blendFunc(gl.ONE, gl.ONE);                            // Linear: saturated additive
+        } else if (bm === "subtract") {
+            gl.blendEquation(gl.FUNC_REVERSE_SUBTRACT);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE);                      // Subtract: src darkens dst
+        } else if (bm === "difference") {
+            gl.blendEquation(gl.FUNC_REVERSE_SUBTRACT);
+            gl.blendFunc(gl.ONE, gl.ONE);                            // Difference: abs(src-dst)
         } else {
+            gl.blendEquation(gl.FUNC_ADD);
             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);     // Normal alpha blend
         }
         // Both sides must be visible (camera is inside the box)
@@ -2254,6 +2274,7 @@ void main() {
         }
 
         gl.disable(gl.BLEND);
+        gl.blendEquation(gl.FUNC_ADD);   // restore default equation for other draw calls
         gl.enable(gl.CULL_FACE);
     }
 
