@@ -113,6 +113,11 @@
             <input type="checkbox" id="animToggle" checked style="width:auto;cursor:pointer;">
         </div>
         <div class="control-group">
+            <label for="cycleTime">Cycle time (s):</label>
+            <input type="range" id="cycleTime" min="1" max="60" step="1" value="10">
+            <span class="value-display" id="cycleTimeValue">10</span>
+        </div>
+        <div class="control-group">
             <label for="burstEase">Easing:</label>
             <select id="burstEase" style="background:#1a2420;color:#9ab0a5;border:1px solid #2a4a3c;padding:4px 8px;border-radius:4px;width:100%;">
                 <option value="linear">Linear</option>
@@ -1098,7 +1103,8 @@ void main() {
         burstPulse: 1,
         edgeWidth: 0.035,
         edgeColor: "#61ebb8",
-        burstEase: "cubicInOut"
+        burstEase: "cubicInOut",
+        cycleTime: 10
     };
     let params = { ...defaults };
 
@@ -1122,9 +1128,9 @@ void main() {
         return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
     }
 
-    // Burst ping-pong: 0 → 1 (BURST_HALF s) then 1 → 0 (BURST_HALF s), repeating.
-    const BURST_HALF  = 35;               // seconds per half-cycle
-    const BURST_CYCLE = BURST_HALF * 2;  // 70 s total
+    // Burst ping-pong: 0 → 1 (cycleTime/2 s) then 1 → 0 (cycleTime/2 s), repeating.
+    const BURST_HALF  = 35;               // initial half-cycle (overridden by params.cycleTime each frame)
+    const BURST_CYCLE = BURST_HALF * 2;  // kept for reference; actual cycle is params.cycleTime
 
     const BURST_EASE_FNS = {
         linear:       t => t,
@@ -1150,10 +1156,12 @@ void main() {
     }
 
     function updateLiveParams(nowSec) {
-        const elapsed  = ((nowSec - burstCycleStart) % BURST_CYCLE + BURST_CYCLE) % BURST_CYCLE;
+        const half     = (params.cycleTime || 10) / 2;
+        const cycle    = half * 2;
+        const elapsed  = ((nowSec - burstCycleStart) % cycle + cycle) % cycle;
         const easeFn   = BURST_EASE_FNS[params.burstEase] || BURST_EASE_FNS.cubicInOut;
-        const mu       = elapsed < BURST_HALF ? elapsed / BURST_HALF : (elapsed - BURST_HALF) / BURST_HALF;
-        const explodeAmt = elapsed < BURST_HALF ? easeFn(mu) : 1 - easeFn(mu);
+        const mu       = elapsed < half ? elapsed / half : (elapsed - half) / half;
+        const explodeAmt = elapsed < half ? easeFn(mu) : 1 - easeFn(mu);
 
         params.explodeAmt = explodeAmt;
         const el = document.getElementById("explodeAmt");
@@ -1203,6 +1211,9 @@ void main() {
             });
         }
 
+        // Cycle time slider (integer seconds)
+        bind("cycleTime", "cycleTime", true);
+
         // Edge color picker
         const edgeColorInput = document.getElementById("edgeColor");
         if (edgeColorInput) {
@@ -1244,6 +1255,9 @@ void main() {
             document.getElementById("effectMode").value = params.effectMode;
             const burstEaseEl = document.getElementById("burstEase");
             if (burstEaseEl) burstEaseEl.value = params.burstEase;
+            const cycleTimeEl = document.getElementById("cycleTime");
+            const cycleTimeValEl = document.getElementById("cycleTimeValue");
+            if (cycleTimeEl) { cycleTimeEl.value = params.cycleTime; if (cycleTimeValEl) cycleTimeValEl.textContent = String(params.cycleTime); }
             const edgeCEl = document.getElementById("edgeColor");
             if (edgeCEl) edgeCEl.value = params.edgeColor;
             const edgeWEl = document.getElementById("edgeWidth");
