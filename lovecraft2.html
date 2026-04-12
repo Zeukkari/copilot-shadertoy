@@ -123,18 +123,18 @@
         </div>
         <div class="control-group" id="shardControls">
             <label for="explodeAmt">Burst amount:</label>
-            <input type="range" id="explodeAmt" min="0" max="1" step="0.01" value="0">
-            <span class="value-display" id="explodeAmtValue">0.00</span>
+            <input type="range" id="explodeAmt" min="0" max="1" step="0.01" value="0.13">
+            <span class="value-display" id="explodeAmtValue">0.13</span>
         </div>
         <div class="control-group" id="shardControls2">
             <label for="shardSpin">Shard spin:</label>
-            <input type="range" id="shardSpin" min="0" max="3" step="0.02" value="0.9">
-            <span class="value-display" id="shardSpinValue">0.90</span>
+            <input type="range" id="shardSpin" min="0" max="3" step="0.02" value="0">
+            <span class="value-display" id="shardSpinValue">0.00</span>
         </div>
         <div class="control-group" id="shardControls3">
             <label for="burstPulse">Burst pulse:</label>
-            <input type="range" id="burstPulse" min="0" max="1" step="0.02" value="0.25">
-            <span class="value-display" id="burstPulseValue">0.25</span>
+            <input type="range" id="burstPulse" min="0" max="1" step="0.02" value="1">
+            <span class="value-display" id="burstPulseValue">1.00</span>
         </div>
         <div class="control-group" id="waveControls" style="display:none;">
             <label for="dispAmp">Wave strength:</label>
@@ -1075,43 +1075,26 @@ void main() {
         dispSpeed: 1.2,
         dispCrest: 1.0,
         effectMode: "shards",
-        explodeAmt: 0,
-        shardSpin: 0.9,
-        burstPulse: 0.25,
+        explodeAmt: 0.13,
+        shardSpin: 0,
+        burstPulse: 1,
         edgeWidth: 0.035,
         edgeColor: "#61ebb8"
     };
     let params = { ...defaults };
 
-    const EASE_NAMES = ["cubicInOut", "quadInOut", "sineInOut", "quartInOut"];
-    const easeFns = {
-        cubicInOut(t) {
-            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-        },
-        quadInOut(t) {
-            return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        },
-        sineInOut(t) {
-            return -(Math.cos(Math.PI * t) - 1) / 2;
-        },
-        quartInOut(t) {
-            return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
-        }
-    };
-
-    function randRange(a, b) {
-        return a + Math.random() * (b - a);
+    /** t ∈ [0,1] → easeOutBounce (decelerating bounces). */
+    function easeOutBounce(t) {
+        const n1 = 7.5625, d1 = 2.75;
+        if (t < 1 / d1)       { return n1 * t * t; }
+        if (t < 2 / d1)       { t -= 1.5   / d1; return n1 * t * t + 0.75; }
+        if (t < 2.5 / d1)     { t -= 2.25  / d1; return n1 * t * t + 0.9375; }
+                                 t -= 2.625 / d1; return n1 * t * t + 0.984375;
     }
+    /** t ∈ [0,1] → easeInBounce (accelerating bounces). */
+    function easeInBounce(t) { return 1 - easeOutBounce(1 - t); }
 
-    function randDur() {
-        return randRange(1, 3);
-    }
-
-    function pickEase() {
-        return EASE_NAMES[(Math.random() * EASE_NAMES.length) | 0];
-    }
-
-    /** Robert Penner–style; t in [0,1], starts at 0, ends at 1 (elastic overshoot near end). */
+    /** t ∈ [0,1] → easeInElastic (snaps to target with elastic overshoot near end). */
     function easeInElastic(t) {
         if (t <= 0) return 0;
         if (t >= 1) return 1;
@@ -1119,172 +1102,39 @@ void main() {
         return -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * c4);
     }
 
-    /**
-     * Burst phase mu in [0,1]: spin always starts at 0, rises with easeInElastic, falls to 0 (mirrored elastic).
-     */
-    function shardSpinEnvelopeElastic(mu) {
-        const u = Math.min(1, Math.max(0, mu));
-        let v;
-        if (u <= 0.5) {
-            v = easeInElastic(u * 2);
-        } else {
-            const t = (u - 0.5) * 2;
-            v = 1 - easeInElastic(t);
-        }
-        return Math.min(1, Math.max(0, v));
-    }
+    // Three-phase burst cycle (repeating, total 7 s):
+    //   Phase A (4 s): explodeAmt 0.13 → 1.0   easeInBounce
+    //   Phase B (2 s): explodeAmt 1.0  → 0.0   easeInBounce
+    //   Phase C (1 s): explodeAmt 0.0  → 0.13  easeInElastic
+    const BURST_PHASE_A = 4, BURST_PHASE_B = 2, BURST_PHASE_C = 1;
+    const BURST_CYCLE = BURST_PHASE_A + BURST_PHASE_B + BURST_PHASE_C; // 7 s
 
-    /** Burst amount envelope: 0 at start & end of burst; slow ease-in and ease-out (symmetric power curve). */
-    const BURST_AMOUNT_SLOW_POWER = 7;
-
-    function burstAmountEnvelope(mu) {
-        const u = Math.min(1, Math.max(0, mu));
-        if (u <= 0.5) {
-            return Math.pow(u * 2, BURST_AMOUNT_SLOW_POWER);
-        }
-        return Math.pow(2 * (1 - u), BURST_AMOUNT_SLOW_POWER);
-    }
-
-    function makeChannel(minV, maxV, start) {
-        const now = performance.now() / 1000;
-        const ch = {
-            minV,
-            maxV,
-            val: start,
-            from: start,
-            t0: now,
-            dur: randDur(),
-            ease: pickEase()
-        };
-        ch.to = randRange(minV, maxV);
-        return ch;
-    }
-
-    function randomTarget(ch) {
-        return randRange(ch.minV, ch.maxV);
-    }
-
-    function advanceChannel(ch, now, forceRetarget) {
-        if (forceRetarget) {
-            ch.from = ch.val;
-            ch.to = randomTarget(ch);
-            ch.t0 = now;
-            ch.dur = randDur();
-            ch.ease = pickEase();
-        } else {
-            let p = (now - ch.t0) / ch.dur;
-            if (p >= 1) {
-                ch.from = ch.to;
-                ch.to = randomTarget(ch);
-                ch.t0 = now;
-                ch.dur = randDur();
-                ch.ease = pickEase();
-            }
-        }
-        const p = Math.min(1, Math.max(0, (now - ch.t0) / ch.dur));
-        const fn = easeFns[ch.ease] || easeFns.cubicInOut;
-        ch.val = ch.from + (ch.to - ch.from) * fn(p);
-        return ch.val;
-    }
-
-    const animChannels = {
-        burstPulse: makeChannel(0.05, 1, 0.25),
-        explodeAmt: makeChannel(0, 1, 0),
-        dispFreq: makeChannel(0.5, 12, 3.5)
-    };
-
-    const MASTER_HOLD_SEC = 3;
-    let masterStartSec = performance.now() / 1000;
-    let masterBurstDur = randDur();
-    let masterTotalDur = MASTER_HOLD_SEC + masterBurstDur;
-    const SHARD_SPIN_PEAK = 2.8;
-
-    let live = {
-        shardSpin: 0,
-        burstPulse: 0.25,
-        explodeAmt: 0,
-        dispFreq: 3.5
-    };
+    let burstCycleStart = performance.now() / 1000;
 
     function resetAutomationFromDefaults() {
-        const now = performance.now() / 1000;
-        masterStartSec = now;
-        masterBurstDur = randDur();
-        masterTotalDur = MASTER_HOLD_SEC + masterBurstDur;
-        for (const k of Object.keys(animChannels)) {
-            const ch = animChannels[k];
-            const v0 = defaults[k];
-            ch.val = ch.from = v0;
-            ch.to = randomTarget(ch);
-            ch.t0 = now;
-            ch.dur = randDur();
-            ch.ease = pickEase();
-        }
+        burstCycleStart = performance.now() / 1000;
     }
 
     function updateLiveParams(nowSec) {
-        let elapsed = nowSec - masterStartSec;
-        let cycleReset = false;
-        if (elapsed >= masterTotalDur) {
-            masterStartSec = nowSec;
-            masterBurstDur = randDur();
-            masterTotalDur = MASTER_HOLD_SEC + masterBurstDur;
-            elapsed = 0;
-            cycleReset = true;
-        }
+        const elapsed = ((nowSec - burstCycleStart) % BURST_CYCLE + BURST_CYCLE) % BURST_CYCLE;
 
-        const inHold = elapsed < MASTER_HOLD_SEC;
-        let burstMu = 0;
-
-        if (inHold) {
-            live.shardSpin = 0;
-            live.explodeAmt = 0;
-            params.modelYaw *= 0.9;
-            if (Math.abs(params.modelYaw) < 0.02) {
-                params.modelYaw = 0;
-            }
-            for (const k of Object.keys(animChannels)) {
-                const ch = animChannels[k];
-                if (cycleReset) {
-                    advanceChannel(ch, nowSec, true);
-                }
-                live[k] = ch.val;
-            }
+        let explodeAmt;
+        if (elapsed < BURST_PHASE_A) {
+            const mu = elapsed / BURST_PHASE_A;
+            explodeAmt = 0.13 + (1.0 - 0.13) * easeInBounce(mu);
+        } else if (elapsed < BURST_PHASE_A + BURST_PHASE_B) {
+            const mu = (elapsed - BURST_PHASE_A) / BURST_PHASE_B;
+            explodeAmt = 1.0 * (1.0 - easeInBounce(mu));
         } else {
-            const burstElapsed = elapsed - MASTER_HOLD_SEC;
-            const mu = burstElapsed / masterBurstDur;
-            burstMu = mu;
-            live.shardSpin = shardSpinEnvelopeElastic(mu) * SHARD_SPIN_PEAK;
-            for (const k of Object.keys(animChannels)) {
-                advanceChannel(animChannels[k], nowSec, cycleReset);
-                live[k] = animChannels[k].val;
-            }
+            const mu = (elapsed - BURST_PHASE_A - BURST_PHASE_B) / BURST_PHASE_C;
+            explodeAmt = Math.max(0, 0.13 * easeInElastic(mu));
         }
 
-        params.shardSpin = live.shardSpin;
-        params.burstPulse = live.burstPulse;
-        params.explodeAmt = inHold
-            ? 0
-            : live.explodeAmt * burstAmountEnvelope(burstMu);
-        params.dispFreq = live.dispFreq;
+        params.explodeAmt = explodeAmt;
 
-        const sync = [
-            ["shardSpin", 2],
-            ["burstPulse", 2],
-            ["explodeAmt", 2],
-            ["dispFreq", 2],
-            ["modelYaw", 2]
-        ];
-        for (let i = 0; i < sync.length; i++) {
-            const id = sync[i][0];
-            const dec = sync[i][1];
-            const el = document.getElementById(id);
-            const disp = document.getElementById(id + "Value");
-            if (el) {
-                el.value = params[id];
-                if (disp) disp.textContent = dec ? Number(params[id]).toFixed(dec) : String(params[id]);
-            }
-        }
+        const el = document.getElementById("explodeAmt");
+        const disp = document.getElementById("explodeAmtValue");
+        if (el) { el.value = explodeAmt; if (disp) disp.textContent = explodeAmt.toFixed(2); }
     }
 
     let animEnabled = true;
