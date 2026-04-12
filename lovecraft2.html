@@ -245,6 +245,22 @@
             <span class="value-display" id="skyboxAlphaValue">0.85</span>
         </div>
 
+        <h3>Camera</h3>
+        <div class="control-group">
+            <label for="camAutoRotate">Auto-rotate:</label>
+            <input type="checkbox" id="camAutoRotate" checked style="width:auto;cursor:pointer;">
+        </div>
+        <div class="control-group">
+            <label for="orbitSpeed">Orbit speed:</label>
+            <input type="range" id="orbitSpeed" min="0" max="2" step="0.05" value="0.35">
+            <span class="value-display" id="orbitSpeedValue">0.35</span>
+        </div>
+        <div class="control-group">
+            <label for="camElevation">Elevation:</label>
+            <input type="range" id="camElevation" min="-1.4" max="1.4" step="0.02" value="0.18">
+            <span class="value-display" id="camElevationValue">0.18</span>
+        </div>
+
         <button id="resetBtn" class="reset-btn">Reset to default</button>
     </div>
     <button id="toggleControls" title="Toggle controls">⚙️</button>
@@ -1450,7 +1466,11 @@ void main() {
         skyboxSize: 3.5,
         skyboxDisp: 0.12,
         skyboxFractalSpeed: 0.5,
-        skyboxAlpha: 0.85
+        skyboxAlpha: 0.85,
+        // Camera
+        camElevation: 0.18,
+        orbitSpeed: 0.35,
+        camAutoRotate: true
     };
     let params = { ...defaults };
 
@@ -1559,6 +1579,16 @@ void main() {
             });
         }
 
+        // Camera controls
+        bind("orbitSpeed", "orbitSpeed");
+        bind("camElevation", "camElevation");
+        const camAutoRotateCheckbox = document.getElementById("camAutoRotate");
+        if (camAutoRotateCheckbox) {
+            camAutoRotateCheckbox.addEventListener("change", (e) => {
+                params.camAutoRotate = e.target.checked;
+            });
+        }
+
         // Animation toggle
         const animCheckbox = document.getElementById("animToggle");
         if (animCheckbox) {
@@ -1620,6 +1650,10 @@ void main() {
             if (planeVisEl) planeVisEl.checked = params.planeVisible;
             const skyboxVisEl = document.getElementById("skyboxVisible");
             if (skyboxVisEl) skyboxVisEl.checked = params.skyboxVisible;
+            // Camera reset
+            cameraAzimuth = 0.0;
+            const camAutoEl = document.getElementById("camAutoRotate");
+            if (camAutoEl) camAutoEl.checked = params.camAutoRotate;
             syncEffectPanels();
         });
     }
@@ -1688,6 +1722,9 @@ void main() {
         canvas.addEventListener("pointerdown", (e) => {
             if (e.button !== 0) return;
             pointer.down = true;
+            cameraDragging = true;
+            cameraLastDragX = e.clientX;
+            cameraLastDragY = e.clientY;
             canvas.style.cursor = "grabbing";
             canvas.setPointerCapture(e.pointerId);
             setFromEvent(e);
@@ -1695,6 +1732,7 @@ void main() {
         });
         canvas.addEventListener("pointerup", (e) => {
             pointer.down = false;
+            cameraDragging = false;
             canvas.style.cursor = pointer.inside ? "crosshair" : "";
             try {
                 canvas.releasePointerCapture(e.pointerId);
@@ -1702,9 +1740,25 @@ void main() {
         });
         canvas.addEventListener("pointercancel", () => {
             pointer.down = false;
+            cameraDragging = false;
             canvas.style.cursor = pointer.inside ? "crosshair" : "";
         });
-        canvas.addEventListener("pointermove", setFromEvent);
+        canvas.addEventListener("pointermove", (e) => {
+            if (cameraDragging) {
+                const dx = e.clientX - cameraLastDragX;
+                const dy = e.clientY - cameraLastDragY;
+                cameraLastDragX = e.clientX;
+                cameraLastDragY = e.clientY;
+                cameraAzimuth -= dx * 0.007;
+                params.camElevation = Math.min(1.4, Math.max(-1.4,
+                    (params.camElevation !== undefined ? params.camElevation : 0.18) - dy * 0.005));
+                // Sync elevation slider
+                const elEl = document.getElementById("camElevation");
+                const elVal = document.getElementById("camElevationValue");
+                if (elEl) { elEl.value = params.camElevation; if (elVal) elVal.textContent = params.camElevation.toFixed(2); }
+            }
+            setFromEvent(e);
+        });
         canvas.addEventListener("wheel", (e) => {
             e.preventDefault();
             const step = (e.deltaY > 0 ? 1 : -1) * 0.055;
@@ -1841,6 +1895,24 @@ void main() {
 
     let startTime = Date.now();
 
+    // ── Camera state ─────────────────────────────────────────────────────────
+    let cameraAzimuth   = 0.0;    // current horizontal orbit angle (radians)
+    let cameraDragging  = false;
+    let cameraLastDragX = 0;
+    let cameraLastDragY = 0;
+    let lastRenderTime  = Date.now();
+
+    /** Shared camera eye-point used by all three 3-D draw functions. */
+    function computeCameraEye() {
+        const d  = baseRadius * camDistMul * params.camDist;
+        const el = params.camElevation !== undefined ? params.camElevation : 0.18;
+        return [
+            worldCenter[0] + Math.cos(el) * Math.sin(cameraAzimuth) * d,
+            worldCenter[1] + Math.sin(el) * d,
+            worldCenter[2] + Math.cos(el) * Math.cos(cameraAzimuth) * d
+        ];
+    }
+
     function updatePointerForFrame() {
         if (!pointer.inside) {
             pointer.tx = 0.5;
@@ -1942,13 +2014,7 @@ void main() {
         const userScale = scaleMat4(params.modelScale, params.modelScale, params.modelScale);
         const model = multiplyMat4(multiplyMat4(mesh.modelBase, yaw), userScale);
 
-        const dist = baseRadius * camDistMul * params.camDist;
-        const orbitT = time * 0.35 + pointerEffect.orbitPhaseAdd;
-        const eye = [
-            worldCenter[0] + Math.cos(orbitT) * dist * 0.85,
-            worldCenter[1] + 0.25 * dist,
-            worldCenter[2] + Math.sin(orbitT) * dist * 0.85
-        ];
+        const eye  = computeCameraEye();
         const view = lookAtView(eye, worldCenter, [0, 1, 0]);
 
         const modelView = multiplyMat4(view, model);
@@ -2025,13 +2091,7 @@ void main() {
         const aspect = w / h;
         const proj   = perspective(Math.PI / 4, aspect, 0.05, 80);
 
-        const orbitT = time * 0.35 + pointerEffect.orbitPhaseAdd;
-        const dist   = baseRadius * camDistMul * params.camDist;
-        const eye    = [
-            worldCenter[0] + Math.cos(orbitT) * dist * 0.85,
-            worldCenter[1] + 0.25 * dist,
-            worldCenter[2] + Math.sin(orbitT) * dist * 0.85
-        ];
+        const eye  = computeCameraEye();
         const view = lookAtView(eye, worldCenter, [0, 1, 0]);
 
         // Place plane: translate to worldCenter + planeY offset, then scale XZ
@@ -2088,13 +2148,7 @@ void main() {
     function drawSkybox(w, h, time) {
         const aspect  = w / h;
         const proj    = perspective(Math.PI / 4, aspect, 0.05, 80);
-        const orbitT  = time * 0.35 + pointerEffect.orbitPhaseAdd;
-        const dist    = baseRadius * camDistMul * params.camDist;
-        const eye     = [
-            worldCenter[0] + Math.cos(orbitT) * dist * 0.85,
-            worldCenter[1] + 0.25 * dist,
-            worldCenter[2] + Math.sin(orbitT) * dist * 0.85
-        ];
+        const eye     = computeCameraEye();
         const view = lookAtView(eye, worldCenter, [0, 1, 0]);
 
         const halfSky = params.skyboxSize !== undefined ? params.skyboxSize : 3.5;
@@ -2175,6 +2229,15 @@ void main() {
     }
 
     function render() {
+        const now = Date.now();
+        const dt  = Math.min((now - lastRenderTime) * 0.001, 0.1);
+        lastRenderTime = now;
+
+        // Auto-rotate camera azimuth when enabled and not dragging
+        if (params.camAutoRotate && !cameraDragging) {
+            cameraAzimuth += dt * (params.orbitSpeed !== undefined ? params.orbitSpeed : 0.35);
+        }
+
         const displayWidth = canvas.clientWidth;
         const displayHeight = canvas.clientHeight;
         const targetWidth = Math.floor(displayWidth * params.quality);
