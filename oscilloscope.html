@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oscilloscope — Phosphor Trails</title>
+    <style>
+        html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; color:#ddd; font-family:'Segoe UI', Tahoma, sans-serif; }
+        canvas { display:block; width:100%; height:100%; }
+        #panel {
+            position:absolute; top:12px; right:12px; width:240px;
+            padding:14px 16px; background:rgba(0,15,8,0.55);
+            backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+            border:1px solid rgba(50,255,150,0.15); border-radius:10px;
+            box-shadow:0 4px 20px rgba(0,40,20,0.5); font-size:12px; z-index:10; user-select:none;
+        }
+        #panel h3 { margin:0 0 10px 0; font-size:13px; font-weight:600; letter-spacing:.5px;
+            color:#5fff9b; text-shadow:0 0 8px #1f8848; }
+        .row { display:flex; flex-direction:column; gap:3px; margin-bottom:9px; }
+        .row label { display:flex; justify-content:space-between; color:#8fc0a0; }
+        .row label span { color:#5fff9b; font-variant-numeric:tabular-nums; }
+        input[type=range] { width:100%; accent-color:#5fff9b; }
+        select, button {
+            width:100%; padding:5px 8px; background:rgba(0,40,20,0.4);
+            border:1px solid rgba(80,200,120,0.2); border-radius:5px; color:#cfe8d8; font-size:12px; cursor:pointer;
+        }
+        button:hover, select:hover { background:rgba(0,80,40,0.5); }
+        .btn-row { display:flex; gap:6px; margin-top:6px; }
+        #hint { position:absolute; left:12px; bottom:12px; font-size:11px; color:#5fff9b;
+            background:rgba(0,20,10,0.5); padding:6px 10px; border-radius:6px; z-index:10; opacity:.7; }
+    </style>
+</head>
+
+<body>
+    <canvas id="c"></canvas>
+    <div id="panel">
+        <h3>◉ OSCILLOSCOPE</h3>
+        <div class="row"><label>Source <span></span></label>
+            <select id="src">
+                <option value="lissajous" selected>Lissajous Math</option>
+                <option value="synth">Built-in Synth</option>
+                <option value="mic">Microphone</option>
+            </select>
+        </div>
+        <div class="row"><label>Frequency A <span id="vFa">3</span></label>
+            <input type="range" id="fa" min="1" max="9" step="0.01" value="3"></div>
+        <div class="row"><label>Frequency B <span id="vFb">2</span></label>
+            <input type="range" id="fb" min="1" max="9" step="0.01" value="2"></div>
+        <div class="row"><label>Phase Drift <span id="vPh">0.10</span></label>
+            <input type="range" id="ph" min="0" max="1" step="0.01" value="0.10"></div>
+        <div class="row"><label>Persistence <span id="vPe">0.95</span></label>
+            <input type="range" id="pe" min="0.7" max="0.99" step="0.005" value="0.95"></div>
+        <div class="row"><label>Beam Intensity <span id="vBi">1.0</span></label>
+            <input type="range" id="bi" min="0.3" max="3" step="0.01" value="1.0"></div>
+        <div class="row"><label>Phosphor <span></span></label>
+            <select id="phos">
+                <option value="0" selected>Green P31</option>
+                <option value="1">Amber P3</option>
+                <option value="2">Cyan</option>
+                <option value="3">Magenta</option>
+            </select>
+        </div>
+        <div class="btn-row">
+            <button id="audioBtn">Start Audio</button>
+            <button id="clear">Clear</button>
+        </div>
+    </div>
+    <div id="hint">Watch the math: try ratios 3:2, 5:4, 7:5</div>
+
+    <script type="x-shader/x-vertex" id="vsLine">
+attribute float a_t; // sample index 0..N-1
+uniform sampler2D u_signal; // line points stored in texture (RG = encoded x,y in [0,1])
+uniform vec2 u_signalRes; // texture size
+uniform float u_count;
+uniform float u_aspect;
+varying float v_t;
+void main(){
+    float idx = a_t;
+    float u = (idx + 0.5) / u_signalRes.x;
+    // Decode [0,1] -> [-1,1]
+    vec2 pt = texture2D(u_signal, vec2(u, 0.5)).xy * 2.0 - 1.0;
+    pt.x /= u_aspect;
+    v_t = idx / max(u_count - 1.0, 1.0);
+    gl_Position = vec4(pt, 0.0, 1.0);
+}
+</script>
+
+    <script type="x-shader/x-fragment" id="fsLine">
+precision highp float;
+varying float v_t;
+uniform vec3 u_color;
+uniform float u_intensity;
+void main(){
+    // Beam color additive
+    gl_FragColor = vec4(u_color * u_intensity * (0.5 + 0.5*v_t), 1.0);
+}
+</script>
+
+    <!-- Persistence: fade previous framebuffer -->
+    <script type="x-shader/x-vertex" id="vsQuad">
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main(){ v_uv = a_pos*0.5+0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }
+</script>
+
+    <script type="x-shader/x-fragment" id="fsFade">
+precision highp float;
+varying vec2 v_uv;
+uniform sampler2D u_prev;
+uniform float u_persistence;
+void main(){
+    vec3 c = texture2D(u_prev, v_uv).rgb;
+    gl_FragColor = vec4(c * u_persistence, 1.0);
+}
+</script>
+
+    <!-- Composite: take accumulator, apply CRT effects -->
+    <script type="x-shader/x-fragment" id="fsCRT">
+precision highp float;
+varying vec2 v_uv;
+uniform sampler2D u_accum;
+uniform vec2 u_res;
+uniform vec3 u_phosphor;
+uniform float u_time;
+void main(){
+    // Barrel distortion
+    vec2 uv = v_uv * 2.0 - 1.0;
+    float r2 = dot(uv, uv);
+    uv *= 1.0 + 0.06 * r2;
+    vec2 cuv = uv * 0.5 + 0.5;
+
+    if(cuv.x < 0.0 || cuv.x > 1.0 || cuv.y < 0.0 || cuv.y > 1.0){
+        gl_FragColor = vec4(0.0, 0.02, 0.01, 1.0);
+        return;
+    }
+
+    vec3 c = texture2D(u_accum, cuv).rgb;
+    // Glow with simple 4-tap blur sample
+    vec3 b = vec3(0.0);
+    float blurR = 2.0 / u_res.x;
+    b += texture2D(u_accum, cuv + vec2( blurR, 0.0)).rgb;
+    b += texture2D(u_accum, cuv - vec2( blurR, 0.0)).rgb;
+    b += texture2D(u_accum, cuv + vec2(0.0,  blurR*1.7)).rgb;
+    b += texture2D(u_accum, cuv - vec2(0.0,  blurR*1.7)).rgb;
+    b *= 0.25;
+
+    vec3 col = (c + b * 1.5) * u_phosphor;
+
+    // Scanlines
+    float scan = 0.85 + 0.15 * sin(cuv.y * u_res.y * 3.14);
+    col *= scan;
+
+    // Subtle flicker
+    col *= 0.96 + 0.04 * sin(u_time * 60.0);
+
+    // Vignette
+    float vig = 1.0 - 0.7 * dot(uv * 0.6, uv * 0.6);
+    col *= vig;
+
+    // Phosphor grain
+    col = pow(col, vec3(0.85));
+    col = col / (1.0 + col);
+    col = pow(col, vec3(1.0/2.2));
+
+    // Background tint
+    col += u_phosphor * 0.005;
+
+    gl_FragColor = vec4(col, 1.0);
+}
+</script>
+
+    <script>
+    const canvas = document.getElementById('c');
+    const gl = canvas.getContext('webgl', { alpha:false, antialias:true, depth:false, preserveDrawingBuffer:false });
+    if(!gl){ document.body.innerHTML='<p style="color:#f88;padding:20px">WebGL not supported.</p>'; throw 0; }
+    // Use UNSIGNED_BYTE for accumulator FBOs — universally renderable.
+    // (OES_texture_half_float / OES_texture_float don't guarantee color-renderability;
+    //  that requires EXT_color_buffer_half_float / WEBGL_color_buffer_float.)
+    const TYPE = gl.UNSIGNED_BYTE;
+
+    function compile(t,s){
+        const sh=gl.createShader(t); gl.shaderSource(sh,s); gl.compileShader(sh);
+        if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(sh)); throw 0; }
+        return sh;
+    }
+    function makeProg(vsId, fsId){
+        const v = compile(gl.VERTEX_SHADER, document.getElementById(vsId).text);
+        const f = compile(gl.FRAGMENT_SHADER, document.getElementById(fsId).text);
+        const p = gl.createProgram(); gl.attachShader(p, v); gl.attachShader(p, f); gl.linkProgram(p);
+        if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(p)); throw 0; }
+        return p;
+    }
+    const pLine = makeProg('vsLine', 'fsLine');
+    const pFade = makeProg('vsQuad', 'fsFade');
+    const pCRT  = makeProg('vsQuad', 'fsCRT');
+
+    // FBOs for accumulator (ping-pong)
+    function makeFBO(w, h){
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, TYPE, null);
+        const fbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        gl.viewport(0,0,w,h); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+        return { tex, fbo, w, h };
+    }
+
+    let accumA, accumB;
+    function allocFBOs(){
+        accumA = makeFBO(canvas.width, canvas.height);
+        accumB = makeFBO(canvas.width, canvas.height);
+    }
+
+    function resize(){
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        allocFBOs();
+    }
+    resize(); window.addEventListener('resize', resize);
+
+    // Quad buffer
+    const quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+    function bindQuadAttr(prog){
+        gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+        const loc = gl.getAttribLocation(prog, 'a_pos');
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    // Signal: stored in a 1xN RGBA8 texture. RG encode x,y in [-1,1] mapped to [0,255].
+    const N = 1024;
+    const signalData = new Uint8Array(N * 4);
+    let signalTex;
+    function makeSignalTex(){
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, N, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, signalData);
+        return tex;
+    }
+    signalTex = makeSignalTex();
+
+    function updateSignalTex(){
+        gl.bindTexture(gl.TEXTURE_2D, signalTex);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, 1, gl.RGBA, gl.UNSIGNED_BYTE, signalData);
+    }
+
+    // Encode a float in [-1,1] to a uint8 [0,255].
+    function enc(v){
+        v = v < -1 ? -1 : (v > 1 ? 1 : v);
+        return ((v * 0.5 + 0.5) * 255) | 0;
+    }
+
+    // Index buffer for line strip
+    const idxArr = new Float32Array(N);
+    for(let i=0;i<N;i++) idxArr[i] = i;
+    const idxBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, idxBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, idxArr, gl.STATIC_DRAW);
+
+    // ---------- State ----------
+    const state = {
+        src: 'lissajous',
+        fa: 3, fb: 2, ph: 0.10,
+        persistence: 0.95, intensity: 1.0,
+        phosphor: 0
+    };
+    const phosphorColors = [
+        [0.4, 1.0, 0.55],   // P31 green
+        [1.0, 0.65, 0.2],   // P3 amber
+        [0.3, 0.95, 1.0],   // cyan
+        [1.0, 0.3, 0.85],   // magenta
+    ];
+
+    const el = id => document.getElementById(id);
+    el('src').onchange = e => { state.src = e.target.value; if(state.src === 'mic') startMic(); };
+    el('fa').oninput = e => { state.fa = parseFloat(e.target.value); el('vFa').textContent = state.fa.toFixed(2); };
+    el('fb').oninput = e => { state.fb = parseFloat(e.target.value); el('vFb').textContent = state.fb.toFixed(2); };
+    el('ph').oninput = e => { state.ph = parseFloat(e.target.value); el('vPh').textContent = state.ph.toFixed(2); };
+    el('pe').oninput = e => { state.persistence = parseFloat(e.target.value); el('vPe').textContent = state.persistence.toFixed(3); };
+    el('bi').oninput = e => { state.intensity = parseFloat(e.target.value); el('vBi').textContent = state.intensity.toFixed(2); };
+    el('phos').onchange = e => state.phosphor = parseInt(e.target.value);
+    el('clear').onclick = () => { allocFBOs(); };
+
+    // ---------- Audio ----------
+    let audioCtx, analyserL, analyserR, audioStarted=false, micActive=false;
+    let scopeBuffer = null;
+    el('audioBtn').onclick = () => {
+        if(!audioStarted) startSynth();
+        else if(audioCtx.state === 'running'){ audioCtx.suspend(); el('audioBtn').textContent='Resume Audio'; }
+        else { audioCtx.resume(); el('audioBtn').textContent='Stop Audio'; }
+    };
+    function startSynth(){
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const master = audioCtx.createGain(); master.gain.value=0.15; master.connect(audioCtx.destination);
+        const splitter = audioCtx.createChannelSplitter(2);
+        const merger = audioCtx.createChannelMerger(2);
+        analyserL = audioCtx.createAnalyser(); analyserL.fftSize=2048;
+        analyserR = audioCtx.createAnalyser(); analyserR.fftSize=2048;
+
+        // Simple stereo synth: two oscillators at different frequencies, panned hard L/R
+        const oscL = audioCtx.createOscillator(); oscL.type='sine'; oscL.frequency.value=220;
+        const oscR = audioCtx.createOscillator(); oscR.type='sine'; oscR.frequency.value=220 * 1.5;
+        const gL = audioCtx.createGain(); gL.gain.value=0.5;
+        const gR = audioCtx.createGain(); gR.gain.value=0.5;
+        oscL.connect(gL); gL.connect(merger, 0, 0); gL.connect(analyserL);
+        oscR.connect(gR); gR.connect(merger, 0, 1); gR.connect(analyserR);
+        // Slow LFO on right osc frequency for moving Lissajous
+        const lfo = audioCtx.createOscillator(); lfo.frequency.value=0.05;
+        const lfoG = audioCtx.createGain(); lfoG.gain.value=80;
+        lfo.connect(lfoG); lfoG.connect(oscR.frequency);
+        merger.connect(master);
+        oscL.start(); oscR.start(); lfo.start();
+        scopeBuffer = { L: new Float32Array(analyserL.fftSize), R: new Float32Array(analyserR.fftSize) };
+        audioStarted = true;
+        el('audioBtn').textContent = 'Stop Audio';
+    }
+    async function startMic(){
+        if(micActive) return;
+        try {
+            if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+            const src = audioCtx.createMediaStreamSource(stream);
+            analyserL = audioCtx.createAnalyser(); analyserL.fftSize=2048;
+            analyserR = audioCtx.createAnalyser(); analyserR.fftSize=2048;
+            // Use same input for both channels (mono mic) but offset slightly
+            src.connect(analyserL);
+            src.connect(analyserR);
+            scopeBuffer = { L: new Float32Array(analyserL.fftSize), R: new Float32Array(analyserR.fftSize) };
+            micActive = true;
+        } catch(err) {
+            console.error('Mic access denied:', err);
+        }
+    }
+
+    // ---------- Signal generation ----------
+    function fillSignalLissajous(t){
+        const A = state.fa, B = state.fb;
+        const phase = state.ph * t;
+        for(let i=0;i<N;i++){
+            const u = (i / (N-1)) * Math.PI * 2;
+            signalData[i*4+0] = enc(Math.sin(A * u + phase) * 0.85);
+            signalData[i*4+1] = enc(Math.sin(B * u) * 0.85);
+            signalData[i*4+2] = 0;
+            signalData[i*4+3] = 255;
+        }
+    }
+    function fillSignalAudio(){
+        if(!analyserL || !analyserR) return;
+        analyserL.getFloatTimeDomainData(scopeBuffer.L);
+        analyserR.getFloatTimeDomainData(scopeBuffer.R);
+        const len = scopeBuffer.L.length;
+        for(let i=0;i<N;i++){
+            const idx = Math.floor(i / N * len);
+            let xv = scopeBuffer.L[idx] * 1.5;
+            let yv = scopeBuffer.R[idx] * 1.5;
+            if(micActive){
+                const idx2 = Math.floor(((i + 50) % N) / N * len);
+                yv = scopeBuffer.R[idx2] * 1.5;
+            }
+            signalData[i*4+0] = enc(xv);
+            signalData[i*4+1] = enc(yv);
+            signalData[i*4+2] = 0;
+            signalData[i*4+3] = 255;
+        }
+    }
+
+    // ---------- Render ----------
+    function bindFBO(f){
+        gl.bindFramebuffer(gl.FRAMEBUFFER, f ? f.fbo : null);
+        gl.viewport(0,0, f ? f.w : canvas.width, f ? f.h : canvas.height);
+    }
+    function drawQuad(){ gl.drawArrays(gl.TRIANGLES, 0, 6); }
+
+    const t0 = performance.now();
+    function frame(now){
+        const t = (now - t0) * 0.001;
+
+        // 1) Generate signal
+        if(state.src === 'lissajous'){
+            fillSignalLissajous(t);
+        } else if(state.src === 'synth' && audioStarted){
+            fillSignalAudio();
+        } else if(state.src === 'mic' && micActive){
+            fillSignalAudio();
+        } else {
+            fillSignalLissajous(t);
+        }
+        updateSignalTex();
+
+        // 2) Fade previous accumulator -> accumB
+        gl.useProgram(pFade);
+        bindFBO(accumB);
+        bindQuadAttr(pFade);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, accumA.tex);
+        gl.uniform1i(gl.getUniformLocation(pFade, 'u_prev'), 0);
+        gl.uniform1f(gl.getUniformLocation(pFade, 'u_persistence'), state.persistence);
+        drawQuad();
+
+        // 3) Draw line on top of accumB (additive)
+        gl.useProgram(pLine);
+        bindFBO(accumB);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, gl.ONE);
+        gl.bindBuffer(gl.ARRAY_BUFFER, idxBuf);
+        const aT = gl.getAttribLocation(pLine, 'a_t');
+        gl.enableVertexAttribArray(aT);
+        gl.vertexAttribPointer(aT, 1, gl.FLOAT, false, 0, 0);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, signalTex);
+        gl.uniform1i(gl.getUniformLocation(pLine, 'u_signal'), 0);
+        gl.uniform2f(gl.getUniformLocation(pLine, 'u_signalRes'), N, 1);
+        gl.uniform1f(gl.getUniformLocation(pLine, 'u_count'), N);
+        gl.uniform1f(gl.getUniformLocation(pLine, 'u_aspect'), canvas.width/canvas.height);
+        const phc = phosphorColors[state.phosphor];
+        gl.uniform3fv(gl.getUniformLocation(pLine, 'u_color'), phc);
+        gl.uniform1f(gl.getUniformLocation(pLine, 'u_intensity'), state.intensity * 0.18);
+        gl.drawArrays(gl.LINE_STRIP, 0, N);
+        gl.disable(gl.BLEND);
+
+        // Swap
+        const tmp = accumA; accumA = accumB; accumB = tmp;
+
+        // 4) CRT composite to screen
+        gl.useProgram(pCRT);
+        bindFBO(null);
+        bindQuadAttr(pCRT);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, accumA.tex);
+        gl.uniform1i(gl.getUniformLocation(pCRT, 'u_accum'), 0);
+        gl.uniform2f(gl.getUniformLocation(pCRT, 'u_res'), canvas.width, canvas.height);
+        gl.uniform3fv(gl.getUniformLocation(pCRT, 'u_phosphor'), phc);
+        gl.uniform1f(gl.getUniformLocation(pCRT, 'u_time'), t);
+        drawQuad();
+
+        requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    </script>
+</body>
+</html>

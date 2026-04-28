@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galaxy — GPU Particles</title>
+    <style>
+        html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; color:#ddd; font-family:'Segoe UI', Tahoma, sans-serif; }
+        canvas { display:block; width:100%; height:100%; cursor:grab; }
+        canvas:active { cursor:grabbing; }
+        #panel {
+            position:absolute; top:12px; right:12px; width:240px;
+            padding:14px 16px; background:rgba(8,5,20,0.55);
+            backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+            border:1px solid rgba(255,255,255,0.08); border-radius:10px;
+            box-shadow:0 4px 20px rgba(0,0,0,0.5); font-size:12px; z-index:10; user-select:none;
+        }
+        #panel h3 { margin:0 0 10px 0; font-size:13px; font-weight:600; letter-spacing:.5px;
+            background:linear-gradient(90deg,#ffd54a,#67a6ff,#ff6fb4); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+        .row { display:flex; flex-direction:column; gap:3px; margin-bottom:9px; }
+        .row label { display:flex; justify-content:space-between; color:#bbb; }
+        .row label span { color:#ffd54a; font-variant-numeric:tabular-nums; }
+        input[type=range] { width:100%; accent-color:#67a6ff; }
+        select, button {
+            width:100%; padding:5px 8px; background:rgba(255,255,255,0.05);
+            border:1px solid rgba(255,255,255,0.1); border-radius:5px; color:#eee; font-size:12px; cursor:pointer;
+        }
+        button:hover, select:hover { background:rgba(255,255,255,0.1); }
+        .btn-row { display:flex; gap:6px; margin-top:6px; }
+        #hint { position:absolute; left:12px; bottom:12px; font-size:11px; color:#aaa;
+            background:rgba(0,0,0,0.45); padding:6px 10px; border-radius:6px; z-index:10; }
+        #fps { position:absolute; left:12px; top:12px; font-size:11px; color:#0f5; opacity:.6; z-index:10; }
+    </style>
+</head>
+
+<body>
+    <canvas id="c"></canvas>
+    <div id="fps"></div>
+    <div id="panel">
+        <h3>✨ GALAXY</h3>
+        <div class="row"><label>Particles <span id="vN">256k</span></label>
+            <select id="N">
+                <option value="128">64k</option>
+                <option value="256" selected>256k</option>
+                <option value="512">1M</option>
+            </select>
+        </div>
+        <div class="row"><label>Black Hole Mass <span id="vM">1.0</span></label>
+            <input type="range" id="mass" min="0" max="3" step="0.01" value="1.0"></div>
+        <div class="row"><label>Spiral Force <span id="vSp">0.4</span></label>
+            <input type="range" id="spiral" min="0" max="2" step="0.01" value="0.4"></div>
+        <div class="row"><label>Damping <span id="vDmp">0.998</span></label>
+            <input type="range" id="damp" min="0.95" max="1.0" step="0.001" value="0.998"></div>
+        <div class="row"><label>Particle Size <span id="vSz">2.0</span></label>
+            <input type="range" id="size" min="0.5" max="6" step="0.1" value="2.0"></div>
+        <div class="row"><label>Color Mode <span></span></label>
+            <select id="mode">
+                <option value="0" selected>Velocity Heat</option>
+                <option value="1">Distance</option>
+                <option value="2">Spectral</option>
+                <option value="3">Monochrome</option>
+            </select>
+        </div>
+        <div class="btn-row">
+            <button id="reset">Reset Disk</button>
+            <button id="explode">Explode</button>
+        </div>
+    </div>
+    <div id="hint">Drag to orbit • Wheel to zoom • Click to throw stars</div>
+
+    <!-- Position update -->
+    <script type="x-shader/x-vertex" id="vsQuad">
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main(){ v_uv = a_pos*0.5+0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }
+</script>
+
+    <script type="x-shader/x-fragment" id="fsUpdatePos">
+precision highp float;
+varying vec2 v_uv;
+uniform sampler2D u_pos;
+uniform sampler2D u_vel;
+uniform float u_dt;
+void main(){
+    vec3 p = texture2D(u_pos, v_uv).xyz;
+    vec3 v = texture2D(u_vel, v_uv).xyz;
+    p += v * u_dt;
+    gl_FragColor = vec4(p, 1.0);
+}
+</script>
+
+    <script type="x-shader/x-fragment" id="fsUpdateVel">
+precision highp float;
+varying vec2 v_uv;
+uniform sampler2D u_pos;
+uniform sampler2D u_vel;
+uniform float u_dt;
+uniform float u_mass;
+uniform float u_spiral;
+uniform float u_damp;
+uniform vec3 u_pokePos;
+uniform float u_pokeStrength;
+
+void main(){
+    vec3 p = texture2D(u_pos, v_uv).xyz;
+    vec3 v = texture2D(u_vel, v_uv).xyz;
+
+    // Central black hole gravity (softened)
+    float r2 = dot(p, p) + 0.5;
+    float invR = inversesqrt(r2);
+    vec3 g = -p * invR * invR * invR * u_mass * 25.0;
+
+    // Spiral / tangential force (creates arms)
+    // Force perpendicular to radius in xz plane, modulated by sin(theta + log(r))
+    vec2 xz = p.xz;
+    float r = length(xz) + 0.001;
+    float th = atan(p.z, p.x);
+    float arm = sin(2.0 * th + log(r) * 3.5);
+    vec3 tangent = vec3(-p.z, 0.0, p.x) / r;
+    g += tangent * arm * u_spiral * 4.0 / (1.0 + r * 0.1);
+
+    // Z-flattening — pull particles toward galactic plane
+    g.y -= p.y * 0.6;
+
+    // Poke from clicks
+    if(u_pokeStrength > 0.001){
+        vec3 dp = p - u_pokePos;
+        float d2 = dot(dp, dp) + 0.5;
+        g += normalize(dp) * u_pokeStrength * 30.0 / d2;
+    }
+
+    v += g * u_dt;
+    v *= u_damp;
+    gl_FragColor = vec4(v, 1.0);
+}
+</script>
+
+    <!-- Particle render -->
+    <script type="x-shader/x-vertex" id="vsParticle">
+attribute vec2 a_idx;
+uniform sampler2D u_pos;
+uniform sampler2D u_vel;
+uniform mat4 u_view;
+uniform mat4 u_proj;
+uniform float u_size;
+uniform vec2 u_res;
+varying vec3 v_vel;
+varying float v_dist;
+void main(){
+    vec3 p = texture2D(u_pos, a_idx).xyz;
+    vec3 v = texture2D(u_vel, a_idx).xyz;
+    v_vel = v;
+
+    vec4 vp = u_view * vec4(p, 1.0);
+    v_dist = -vp.z;
+    gl_Position = u_proj * vp;
+    gl_PointSize = u_size * (200.0 / max(v_dist, 1.0));
+}
+</script>
+
+    <script type="x-shader/x-fragment" id="fsParticle">
+precision highp float;
+varying vec3 v_vel;
+varying float v_dist;
+uniform int u_mode;
+
+vec3 spectralColor(float t){
+    // Star-temperature-like: red -> yellow -> white -> blue
+    return mix(
+        mix(vec3(1.0, 0.3, 0.1), vec3(1.0, 0.9, 0.5), smoothstep(0.0, 0.4, t)),
+        mix(vec3(1.0, 0.95, 0.85), vec3(0.6, 0.75, 1.0), smoothstep(0.6, 1.0, t)),
+        smoothstep(0.4, 0.6, t)
+    );
+}
+vec3 heat(float t){
+    return vec3(pow(t, 0.6), pow(max(t-0.3, 0.0), 1.4), pow(max(t-0.6, 0.0), 3.0));
+}
+
+void main(){
+    vec2 c = gl_PointCoord - 0.5;
+    float r = length(c);
+    if(r > 0.5) discard;
+    float a = pow(1.0 - r * 2.0, 2.0);
+
+    float speed = length(v_vel);
+    vec3 col;
+    if(u_mode == 0){
+        col = heat(min(speed * 0.15, 1.0));
+    } else if(u_mode == 1){
+        col = spectralColor(clamp(1.0 - v_dist * 0.04, 0.0, 1.0));
+    } else if(u_mode == 2){
+        col = spectralColor(min(speed * 0.12 + 0.1, 1.0));
+    } else {
+        col = vec3(1.0);
+    }
+
+    // Additive
+    gl_FragColor = vec4(col * a * 0.85, a);
+}
+</script>
+
+    <script>
+    const canvas = document.getElementById('c');
+    const gl = canvas.getContext('webgl', { alpha:false, antialias:false, depth:false, stencil:false });
+    if(!gl){ document.body.innerHTML='<p style="color:#f88;padding:20px">WebGL not supported.</p>'; throw 0; }
+    const extHF = gl.getExtension('OES_texture_half_float');
+    const extHFL = gl.getExtension('OES_texture_half_float_linear');
+    const extFL = gl.getExtension('OES_texture_float');
+    if(!extFL && !extHF){
+        document.body.innerHTML='<p style="color:#f88;padding:20px">Float textures not supported on this device.</p>';
+        throw 0;
+    }
+    // For physics we want FLOAT precision; HALF_FLOAT can lose detail at large radii.
+    // Prefer FLOAT if available; else fall back to HALF_FLOAT.
+    let TYPE = extFL ? gl.FLOAT : extHF.HALF_FLOAT_OES;
+
+    function compile(t,s){
+        const sh=gl.createShader(t); gl.shaderSource(sh,s); gl.compileShader(sh);
+        if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(sh)); throw 0; }
+        return sh;
+    }
+    function makeProg(vsId, fsId){
+        const v = compile(gl.VERTEX_SHADER, document.getElementById(vsId).text);
+        const f = compile(gl.FRAGMENT_SHADER, document.getElementById(fsId).text);
+        const p = gl.createProgram(); gl.attachShader(p, v); gl.attachShader(p, f); gl.linkProgram(p);
+        if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(p)); throw 0; }
+        return p;
+    }
+    const pUpdatePos = makeProg('vsQuad', 'fsUpdatePos');
+    const pUpdateVel = makeProg('vsQuad', 'fsUpdateVel');
+    const pParticle  = makeProg('vsParticle', 'fsParticle');
+
+    // Quad
+    const quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+
+    // FBOs for pos/vel
+    function makeFBO(w, h, data){
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        if(TYPE === gl.FLOAT){
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.FLOAT, data);
+        } else {
+            // Half float — need to convert Float32 to Uint16 half
+            let halfData = null;
+            if(data){
+                halfData = new Uint16Array(data.length);
+                for(let i=0;i<data.length;i++) halfData[i] = floatToHalf(data[i]);
+            }
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, TYPE, halfData);
+        }
+        const fbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        return { tex, fbo, w, h };
+    }
+    function floatToHalf(val){
+        const f = new Float32Array(1); f[0] = val;
+        const i = new Int32Array(f.buffer)[0];
+        const sign = (i >> 16) & 0x8000;
+        let exp = ((i >> 23) & 0xff) - 127 + 15;
+        let mant = i & 0x7fffff;
+        if(exp <= 0){ exp = 0; mant = 0; }
+        else if(exp >= 31){ exp = 31; mant = 0; }
+        return sign | (exp << 10) | (mant >> 13);
+    }
+
+    let SIZE; // per-side particle texture
+    let posA, posB, velA, velB;
+    let idxBuf;
+
+    function alloc(N){
+        SIZE = N;
+        const total = SIZE * SIZE;
+        const pos = new Float32Array(total * 4);
+        const vel = new Float32Array(total * 4);
+        // Initialize as a thin disk with circular orbits
+        for(let i=0;i<total;i++){
+            const r = 4.0 + Math.pow(Math.random(), 0.6) * 18.0;
+            const th = Math.random() * Math.PI * 2;
+            const y = (Math.random() - 0.5) * 0.4 * Math.exp(-r * 0.05);
+            const x = Math.cos(th) * r;
+            const z = Math.sin(th) * r;
+            pos[i*4+0] = x;
+            pos[i*4+1] = y;
+            pos[i*4+2] = z;
+            pos[i*4+3] = 1.0;
+            // Circular orbit velocity: v = sqrt(M/r)
+            const vmag = Math.sqrt(25.0 / Math.max(r, 0.5)) * 0.95;
+            vel[i*4+0] = -Math.sin(th) * vmag;
+            vel[i*4+1] = 0.0;
+            vel[i*4+2] =  Math.cos(th) * vmag;
+            vel[i*4+3] = 1.0;
+        }
+        posA = makeFBO(SIZE, SIZE, pos);
+        posB = makeFBO(SIZE, SIZE, null);
+        velA = makeFBO(SIZE, SIZE, vel);
+        velB = makeFBO(SIZE, SIZE, null);
+
+        // Index buffer
+        const idx = new Float32Array(total * 2);
+        for(let i=0;i<total;i++){
+            idx[i*2+0] = (i % SIZE + 0.5) / SIZE;
+            idx[i*2+1] = (Math.floor(i / SIZE) + 0.5) / SIZE;
+        }
+        idxBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, idxBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    }
+
+    function explode(){
+        // Reseed velocities radially outward
+        const total = SIZE * SIZE;
+        const vel = new Float32Array(total * 4);
+        // Read positions (slow but rare)
+        gl.bindFramebuffer(gl.FRAMEBUFFER, posA.fbo);
+        const tmp = (TYPE === gl.FLOAT) ? new Float32Array(total*4) : null;
+        if(tmp){
+            // Reading FLOAT not always supported; just inject random velocities.
+        }
+        for(let i=0;i<total;i++){
+            const x = (Math.random()-0.5) * 2;
+            const y = (Math.random()-0.5) * 2;
+            const z = (Math.random()-0.5) * 2;
+            const m = 8.0;
+            vel[i*4+0] = x*m;
+            vel[i*4+1] = y*m;
+            vel[i*4+2] = z*m;
+            vel[i*4+3] = 1.0;
+        }
+        gl.bindTexture(gl.TEXTURE_2D, velA.tex);
+        if(TYPE === gl.FLOAT){
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, SIZE, SIZE, 0, gl.RGBA, gl.FLOAT, vel);
+        } else {
+            const h = new Uint16Array(vel.length);
+            for(let i=0;i<vel.length;i++) h[i] = floatToHalf(vel[i]);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, SIZE, SIZE, 0, gl.RGBA, TYPE, h);
+        }
+    }
+
+    // Resize
+    function resize(){
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    resize(); window.addEventListener('resize', resize);
+
+    // ---------- State ----------
+    const state = {
+        mass: 1.0, spiral: 0.4, damp: 0.998, size: 2.0, mode: 0,
+        N: 256, // means SIZE = 256 -> 65536 particles  (label 256k is misleading; let's use SIZE^2)
+        camYaw: 0.5, camPitch: -0.5, camDist: 35.0,
+        pokePos: [0,0,0], pokeStrength: 0.0
+    };
+
+    const el = id => document.getElementById(id);
+    function fmtCount(s){ const n = s*s; return n >= 1e6 ? (n/1e6).toFixed(1)+'M' : Math.round(n/1000)+'k'; }
+
+    el('N').onchange = e => { state.N = parseInt(e.target.value); alloc(state.N); el('vN').textContent = fmtCount(state.N); };
+    el('mass').oninput = e => { state.mass = parseFloat(e.target.value); el('vM').textContent = state.mass.toFixed(2); };
+    el('spiral').oninput = e => { state.spiral = parseFloat(e.target.value); el('vSp').textContent = state.spiral.toFixed(2); };
+    el('damp').oninput = e => { state.damp = parseFloat(e.target.value); el('vDmp').textContent = state.damp.toFixed(3); };
+    el('size').oninput = e => { state.size = parseFloat(e.target.value); el('vSz').textContent = state.size.toFixed(1); };
+    el('mode').onchange = e => state.mode = parseInt(e.target.value);
+    el('reset').onclick = () => alloc(state.N);
+    el('explode').onclick = explode;
+
+    // ---------- Camera ----------
+    let dragging=false, lastX=0, lastY=0;
+    canvas.addEventListener('mousedown', e => {
+        dragging=true; lastX=e.clientX; lastY=e.clientY;
+        if(e.button === 0 && (e.shiftKey || e.altKey)){
+            // poke handled below
+        }
+    });
+    window.addEventListener('mouseup', e => {
+        dragging=false;
+        if(!e.shiftKey && Math.abs(e.clientX - lastX) < 3 && Math.abs(e.clientY - lastY) < 3){
+            // Throw stars at click — convert screen to world ray
+            schedulePoke(e.clientX, e.clientY);
+        }
+    });
+    window.addEventListener('mousemove', e => {
+        if(!dragging) return;
+        const dx = e.clientX - lastX, dy = e.clientY - lastY;
+        lastX = e.clientX; lastY = e.clientY;
+        state.camYaw += dx * 0.005;
+        state.camPitch = Math.max(-1.4, Math.min(1.4, state.camPitch + dy * 0.005));
+    });
+    window.addEventListener('wheel', e => {
+        state.camDist = Math.max(8, Math.min(150, state.camDist * (e.deltaY > 0 ? 1.1 : 0.9)));
+        e.preventDefault();
+    }, { passive:false });
+    canvas.addEventListener('touchstart', e => { dragging=true; lastX=e.touches[0].clientX; lastY=e.touches[0].clientY; }, { passive:true });
+    canvas.addEventListener('touchmove', e => {
+        if(!dragging) return;
+        const dx = e.touches[0].clientX - lastX, dy = e.touches[0].clientY - lastY;
+        lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+        state.camYaw += dx * 0.005;
+        state.camPitch = Math.max(-1.4, Math.min(1.4, state.camPitch + dy * 0.005));
+    }, { passive:true });
+    canvas.addEventListener('touchend', () => dragging=false);
+
+    function schedulePoke(sx, sy){
+        // Project click to a world point in the galactic plane (y=0) for simplicity
+        // Approx: camera ray hits y=0
+        const ndc = [
+            (sx / window.innerWidth) * 2 - 1,
+            1 - (sy / window.innerHeight) * 2,
+        ];
+        // Use camera matrix to invert
+        const inv = invertMat4(matVP());
+        const near = mat4MulVec4(inv, [ndc[0], ndc[1], -1, 1]);
+        const far  = mat4MulVec4(inv, [ndc[0], ndc[1], 1, 1]);
+        for(let i=0;i<3;i++){ near[i]/=near[3]; far[i]/=far[3]; }
+        // Intersect with y=0 plane
+        const dx = far[0]-near[0], dy = far[1]-near[1], dz = far[2]-near[2];
+        if(Math.abs(dy) < 1e-4) return;
+        const t = -near[1] / dy;
+        if(t < 0) return;
+        state.pokePos = [near[0] + dx*t, 0, near[2] + dz*t];
+        state.pokeStrength = 1.5;
+    }
+
+    // ---------- Mat4 helpers ----------
+    function mat4Identity(){ return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
+    function mat4Perspective(fovY, aspect, near, far){
+        const f = 1/Math.tan(fovY/2);
+        return [
+            f/aspect, 0, 0, 0,
+            0, f, 0, 0,
+            0, 0, (far+near)/(near-far), -1,
+            0, 0, (2*far*near)/(near-far), 0
+        ];
+    }
+    function mat4Mul(a, b){
+        const r = new Array(16);
+        for(let i=0;i<4;i++) for(let j=0;j<4;j++){
+            r[i*4+j] = a[0*4+j]*b[i*4+0] + a[1*4+j]*b[i*4+1] + a[2*4+j]*b[i*4+2] + a[3*4+j]*b[i*4+3];
+        }
+        return r;
+    }
+    function mat4Translate(tx,ty,tz){
+        return [1,0,0,0, 0,1,0,0, 0,0,1,0, tx,ty,tz,1];
+    }
+    function mat4RotX(a){ const c=Math.cos(a), s=Math.sin(a); return [1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]; }
+    function mat4RotY(a){ const c=Math.cos(a), s=Math.sin(a); return [c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]; }
+    function mat4MulVec4(m, v){
+        return [
+            m[0]*v[0]+m[4]*v[1]+m[8]*v[2]+m[12]*v[3],
+            m[1]*v[0]+m[5]*v[1]+m[9]*v[2]+m[13]*v[3],
+            m[2]*v[0]+m[6]*v[1]+m[10]*v[2]+m[14]*v[3],
+            m[3]*v[0]+m[7]*v[1]+m[11]*v[2]+m[15]*v[3],
+        ];
+    }
+    function invertMat4(m){
+        // Standard 4x4 invert
+        const inv = new Array(16);
+        inv[0]=m[5]*m[10]*m[15]-m[5]*m[11]*m[14]-m[9]*m[6]*m[15]+m[9]*m[7]*m[14]+m[13]*m[6]*m[11]-m[13]*m[7]*m[10];
+        inv[4]=-m[4]*m[10]*m[15]+m[4]*m[11]*m[14]+m[8]*m[6]*m[15]-m[8]*m[7]*m[14]-m[12]*m[6]*m[11]+m[12]*m[7]*m[10];
+        inv[8]=m[4]*m[9]*m[15]-m[4]*m[11]*m[13]-m[8]*m[5]*m[15]+m[8]*m[7]*m[13]+m[12]*m[5]*m[11]-m[12]*m[7]*m[9];
+        inv[12]=-m[4]*m[9]*m[14]+m[4]*m[10]*m[13]+m[8]*m[5]*m[14]-m[8]*m[6]*m[13]-m[12]*m[5]*m[10]+m[12]*m[6]*m[9];
+        inv[1]=-m[1]*m[10]*m[15]+m[1]*m[11]*m[14]+m[9]*m[2]*m[15]-m[9]*m[3]*m[14]-m[13]*m[2]*m[11]+m[13]*m[3]*m[10];
+        inv[5]=m[0]*m[10]*m[15]-m[0]*m[11]*m[14]-m[8]*m[2]*m[15]+m[8]*m[3]*m[14]+m[12]*m[2]*m[11]-m[12]*m[3]*m[10];
+        inv[9]=-m[0]*m[9]*m[15]+m[0]*m[11]*m[13]+m[8]*m[1]*m[15]-m[8]*m[3]*m[13]-m[12]*m[1]*m[11]+m[12]*m[3]*m[9];
+        inv[13]=m[0]*m[9]*m[14]-m[0]*m[10]*m[13]-m[8]*m[1]*m[14]+m[8]*m[2]*m[13]+m[12]*m[1]*m[10]-m[12]*m[2]*m[9];
+        inv[2]=m[1]*m[6]*m[15]-m[1]*m[7]*m[14]-m[5]*m[2]*m[15]+m[5]*m[3]*m[14]+m[13]*m[2]*m[7]-m[13]*m[3]*m[6];
+        inv[6]=-m[0]*m[6]*m[15]+m[0]*m[7]*m[14]+m[4]*m[2]*m[15]-m[4]*m[3]*m[14]-m[12]*m[2]*m[7]+m[12]*m[3]*m[6];
+        inv[10]=m[0]*m[5]*m[15]-m[0]*m[7]*m[13]-m[4]*m[1]*m[15]+m[4]*m[3]*m[13]+m[12]*m[1]*m[7]-m[12]*m[3]*m[5];
+        inv[14]=-m[0]*m[5]*m[14]+m[0]*m[6]*m[13]+m[4]*m[1]*m[14]-m[4]*m[2]*m[13]-m[12]*m[1]*m[6]+m[12]*m[2]*m[5];
+        inv[3]=-m[1]*m[6]*m[11]+m[1]*m[7]*m[10]+m[5]*m[2]*m[11]-m[5]*m[3]*m[10]-m[9]*m[2]*m[7]+m[9]*m[3]*m[6];
+        inv[7]=m[0]*m[6]*m[11]-m[0]*m[7]*m[10]-m[4]*m[2]*m[11]+m[4]*m[3]*m[10]+m[8]*m[2]*m[7]-m[8]*m[3]*m[6];
+        inv[11]=-m[0]*m[5]*m[11]+m[0]*m[7]*m[9]+m[4]*m[1]*m[11]-m[4]*m[3]*m[9]-m[8]*m[1]*m[7]+m[8]*m[3]*m[5];
+        inv[15]=m[0]*m[5]*m[10]-m[0]*m[6]*m[9]-m[4]*m[1]*m[10]+m[4]*m[2]*m[9]+m[8]*m[1]*m[6]-m[8]*m[2]*m[5];
+        let det = m[0]*inv[0]+m[1]*inv[4]+m[2]*inv[8]+m[3]*inv[12];
+        if(det === 0) return mat4Identity();
+        det = 1/det;
+        for(let i=0;i<16;i++) inv[i] *= det;
+        return inv;
+    }
+    function matView(){
+        // Orbit camera: dist back, then pitch, then yaw
+        let m = mat4Translate(0, 0, -state.camDist);
+        m = mat4Mul(m, mat4RotX(state.camPitch));
+        m = mat4Mul(m, mat4RotY(state.camYaw));
+        return m;
+    }
+    function matProj(){
+        return mat4Perspective(60 * Math.PI/180, canvas.width/canvas.height, 0.1, 500);
+    }
+    function matVP(){ return mat4Mul(matProj(), matView()); }
+
+    // ---------- Init ----------
+    alloc(state.N);
+    el('vN').textContent = fmtCount(state.N);
+
+    function bindFBO(f){
+        gl.bindFramebuffer(gl.FRAMEBUFFER, f.fbo);
+        gl.viewport(0,0,f.w,f.h);
+    }
+
+    function bindQuadAttr(prog){
+        gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+        const loc = gl.getAttribLocation(prog, 'a_pos');
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    // FPS
+    const fpsEl = el('fps');
+    let frames=0, fpsT=performance.now();
+
+    function frame(now){
+        const dt = 0.016;
+
+        // 1) Update velocities (pos -> vel new)
+        gl.useProgram(pUpdateVel);
+        bindFBO(velB);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, posA.tex);
+        gl.uniform1i(gl.getUniformLocation(pUpdateVel, 'u_pos'), 0);
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, velA.tex);
+        gl.uniform1i(gl.getUniformLocation(pUpdateVel, 'u_vel'), 1);
+        gl.uniform1f(gl.getUniformLocation(pUpdateVel, 'u_dt'), dt);
+        gl.uniform1f(gl.getUniformLocation(pUpdateVel, 'u_mass'), state.mass);
+        gl.uniform1f(gl.getUniformLocation(pUpdateVel, 'u_spiral'), state.spiral);
+        gl.uniform1f(gl.getUniformLocation(pUpdateVel, 'u_damp'), state.damp);
+        gl.uniform3fv(gl.getUniformLocation(pUpdateVel, 'u_pokePos'), state.pokePos);
+        gl.uniform1f(gl.getUniformLocation(pUpdateVel, 'u_pokeStrength'), state.pokeStrength);
+        bindQuadAttr(pUpdateVel);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        // Swap vel
+        let tmp = velA; velA = velB; velB = tmp;
+
+        // 2) Update positions
+        gl.useProgram(pUpdatePos);
+        bindFBO(posB);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, posA.tex);
+        gl.uniform1i(gl.getUniformLocation(pUpdatePos, 'u_pos'), 0);
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, velA.tex);
+        gl.uniform1i(gl.getUniformLocation(pUpdatePos, 'u_vel'), 1);
+        gl.uniform1f(gl.getUniformLocation(pUpdatePos, 'u_dt'), dt);
+        bindQuadAttr(pUpdatePos);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        tmp = posA; posA = posB; posB = tmp;
+
+        // Decay poke
+        state.pokeStrength *= 0.85;
+
+        // 3) Render particles (additive)
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.clearColor(0.01, 0.005, 0.02, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+        gl.useProgram(pParticle);
+        gl.bindBuffer(gl.ARRAY_BUFFER, idxBuf);
+        const aIdx = gl.getAttribLocation(pParticle, 'a_idx');
+        gl.enableVertexAttribArray(aIdx);
+        gl.vertexAttribPointer(aIdx, 2, gl.FLOAT, false, 0, 0);
+
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, posA.tex);
+        gl.uniform1i(gl.getUniformLocation(pParticle, 'u_pos'), 0);
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, velA.tex);
+        gl.uniform1i(gl.getUniformLocation(pParticle, 'u_vel'), 1);
+        gl.uniformMatrix4fv(gl.getUniformLocation(pParticle, 'u_view'), false, matView());
+        gl.uniformMatrix4fv(gl.getUniformLocation(pParticle, 'u_proj'), false, matProj());
+        gl.uniform1f(gl.getUniformLocation(pParticle, 'u_size'), state.size);
+        gl.uniform2f(gl.getUniformLocation(pParticle, 'u_res'), canvas.width, canvas.height);
+        gl.uniform1i(gl.getUniformLocation(pParticle, 'u_mode'), state.mode);
+
+        gl.drawArrays(gl.POINTS, 0, SIZE * SIZE);
+
+        gl.disable(gl.BLEND);
+
+        frames++;
+        if(now - fpsT > 500){
+            fpsEl.textContent = Math.round(frames * 1000/(now - fpsT)) + ' fps';
+            frames = 0; fpsT = now;
+        }
+        requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    </script>
+</body>
+</html>

@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Net — Pulsing Lattice</title>
+    <style>
+        html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; color:#ddd; font-family:'Segoe UI', Tahoma, sans-serif; }
+        canvas { display:block; width:100%; height:100%; cursor:grab; }
+        canvas:active { cursor:grabbing; }
+        #panel {
+            position:absolute; top:12px; right:12px; width:240px;
+            padding:14px 16px; background:rgba(8,12,20,0.55);
+            backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+            border:1px solid rgba(255,255,255,0.08); border-radius:10px;
+            box-shadow:0 4px 20px rgba(0,0,0,0.5); font-size:12px; z-index:10; user-select:none;
+        }
+        #panel h3 { margin:0 0 10px 0; font-size:13px; font-weight:600; letter-spacing:.5px;
+            background:linear-gradient(90deg,#5fffce,#5e9bff,#ffaa5f); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+        .row { display:flex; flex-direction:column; gap:3px; margin-bottom:9px; }
+        .row label { display:flex; justify-content:space-between; color:#bbb; }
+        .row label span { color:#5fffce; font-variant-numeric:tabular-nums; }
+        input[type=range] { width:100%; accent-color:#5e9bff; }
+        select, button {
+            width:100%; padding:5px 8px; background:rgba(255,255,255,0.05);
+            border:1px solid rgba(255,255,255,0.1); border-radius:5px; color:#eee; font-size:12px; cursor:pointer;
+        }
+        button:hover, select:hover { background:rgba(255,255,255,0.1); }
+        #hint { position:absolute; left:12px; bottom:12px; font-size:11px; color:#aaa;
+            background:rgba(0,0,0,0.45); padding:6px 10px; border-radius:6px; z-index:10; }
+        #fps { position:absolute; left:12px; top:12px; font-size:11px; color:#0f5; opacity:.6; z-index:10; }
+        #err { position:absolute; left:12px; top:30px; font-size:11px; color:#f88; z-index:10; max-width:60%; }
+    </style>
+</head>
+
+<body>
+    <canvas id="c"></canvas>
+    <div id="fps"></div>
+    <div id="err"></div>
+    <div id="panel">
+        <h3>⌬ NEURAL LATTICE</h3>
+        <div class="row"><label>Layer Spacing <span id="vLs">1.6</span></label>
+            <input type="range" id="ls" min="1.0" max="3.0" step="0.05" value="1.6"></div>
+        <div class="row"><label>Node Spacing <span id="vNs">0.8</span></label>
+            <input type="range" id="ns" min="0.4" max="1.5" step="0.05" value="0.8"></div>
+        <div class="row"><label>Wire Thickness <span id="vT">0.04</span></label>
+            <input type="range" id="T" min="0.01" max="0.10" step="0.005" value="0.04"></div>
+        <div class="row"><label>Signal Speed <span id="vSp">1.0</span></label>
+            <input type="range" id="Sp" min="0" max="3" step="0.01" value="1.0"></div>
+        <div class="row"><label>Glow <span id="vG">1.0</span></label>
+            <input type="range" id="G" min="0" max="3" step="0.01" value="1.0"></div>
+        <div class="row"><label>Style <span></span></label>
+            <select id="style">
+                <option value="0" selected>Bio Neural</option>
+                <option value="1">Cyber Grid</option>
+                <option value="2">Plasma</option>
+            </select>
+        </div>
+    </div>
+    <div id="hint">Drag to orbit • Wheel to zoom</div>
+
+    <script type="x-shader/x-vertex" id="vs">
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main(){ v_uv = a_pos*0.5+0.5; gl_Position = vec4(a_pos,0.0,1.0); }
+</script>
+
+    <script type="x-shader/x-fragment" id="fs">
+precision highp float;
+varying vec2 v_uv;
+
+uniform vec2  u_res;
+uniform float u_time;
+uniform float u_layerSpacing;   // distance between adjacent layers (along x)
+uniform float u_nodeSpacing;    // vertical spacing between nodes within a layer
+uniform float u_thick;
+uniform float u_sigSpeed;
+uniform float u_glow;
+uniform int   u_style;
+uniform vec3  u_camPos;
+uniform vec3  u_camTarget;
+
+// ---------- Hash ----------
+float hash21(vec2 p){
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+// ---------- SDF helpers ----------
+float sdSphere(vec3 p, float r){ return length(p) - r; }
+float sdCapsule(vec3 p, vec3 a, vec3 b, float r){
+    vec3 pa = p - a, ba = b - a;
+    float h = clamp(dot(pa, ba)/dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * h) - r;
+}
+
+// ---------- Lattice ----------
+// Layers run along x. Within each layer, nodes form a 5x5 grid in y/z.
+// Nodes per layer: 5x5 = 25, in [-2..2] range
+// We render a finite extent: 5 layers (li in 0..4)
+
+// Position of node (li, nj, nk)  with subtle breathing
+vec3 nodeP(float li, float nj, float nk){
+    float x = (li - 2.0) * u_layerSpacing;
+    float y = (nj - 2.0) * u_nodeSpacing;
+    float z = (nk - 2.0) * u_nodeSpacing;
+    // Subtle organic movement
+    float seed = li * 7.13 + nj * 3.71 + nk * 1.93;
+    y += sin(seed + u_time * 0.4) * 0.04;
+    z += cos(seed * 1.3 + u_time * 0.3) * 0.04;
+    return vec3(x, y, z);
+}
+
+vec3 styleCol(float t){
+    if(u_style == 0) return mix(vec3(0.2,1.0,0.7), vec3(0.7,0.4,1.0), t);
+    if(u_style == 1) return mix(vec3(0.2,0.7,1.0), vec3(1.0,0.3,0.6), t);
+    return 0.5 + 0.5 * cos(6.2831 * (vec3(1.0,0.7,0.4)*t + vec3(0.0,0.33,0.67)));
+}
+
+// Returns dist, color packed in vec4: (dist, r, g, b), with alpha = emit factor
+vec4 evalNode(vec3 p, float li, float nj, float nk){
+    vec3 np = nodeP(li, nj, nk);
+    float r = 0.10 + 0.04 * sin(u_time * 1.4 + li + nj * 0.7 + nk * 0.5);
+    float d = sdSphere(p - np, r);
+    float layerWave = 0.5 + 0.5 * sin(u_time * u_sigSpeed - li * 1.2);
+    float emit = pow(layerWave, 6.0) * 1.5 + 0.3;
+    float ct = (nj * 5.0 + nk) / 25.0;
+    vec3 col = styleCol(ct);
+    return vec4(d, col * emit);
+}
+
+// Edge from a node in layer li to a node in layer li+1
+vec4 evalEdge(vec3 p, float li, float nj1, float nk1, float nj2, float nk2){
+    vec3 a = nodeP(li, nj1, nk1);
+    vec3 b = nodeP(li + 1.0, nj2, nk2);
+    float w = hash21(vec2(li * 31.0 + nj1 * 5.0 + nk1, nj2 * 5.0 + nk2));
+    if(w < 0.55){
+        return vec4(1e6, 0.0, 0.0, 0.0);
+    }
+    float thick = u_thick * (0.7 + 0.6 * w);
+    float d = sdCapsule(p, a, b, thick);
+
+    // Signal pulse
+    vec3 ab = b - a;
+    float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 0.0001), 0.0, 1.0);
+    float phase = fract(u_time * u_sigSpeed * 0.4 - li * 0.3 - w * 1.5);
+    float sig = exp(-pow((t - phase) * 6.0, 2.0));
+    sig += exp(-pow((t - phase + 1.0) * 6.0, 2.0));
+    float emit = sig * 5.0 + 0.05;
+    vec3 col = styleCol(0.5 + 0.5 * w);
+    return vec4(d, col * emit);
+}
+
+vec4 minD(vec4 a, vec4 b){ return a.x < b.x ? a : b; }
+
+// Find which "cell" point p is closest to in layer-grid coords
+// to constrain edge testing to local neighborhood
+vec4 mapScene(vec3 p){
+    vec4 best = vec4(1e6, 0.0, 0.0, 0.0);
+
+    // Determine current layer index from x
+    float fl = p.x / u_layerSpacing + 2.0;
+    float liF = floor(fl + 0.5);
+    // Determine current node grid coords from y,z
+    float fj = p.y / u_nodeSpacing + 2.0;
+    float fk = p.z / u_nodeSpacing + 2.0;
+    float njF = floor(fj + 0.5);
+    float nkF = floor(fk + 0.5);
+
+    // ---- Nodes: test the 3x3x3 neighborhood around (liF, njF, nkF) ----
+    for(int dl=-1; dl<=1; dl++){
+        for(int dj=-1; dj<=1; dj++){
+            for(int dk=-1; dk<=1; dk++){
+                float li = liF + float(dl);
+                float nj = njF + float(dj);
+                float nk = nkF + float(dk);
+                if(li < 0.0 || li > 4.0) continue;
+                if(nj < 0.0 || nj > 4.0) continue;
+                if(nk < 0.0 || nk > 4.0) continue;
+                best = minD(best, evalNode(p, li, nj, nk));
+            }
+        }
+    }
+
+    // ---- Edges: connect node (liF, njF, nkF) to layer liF+1 neighborhood,
+    //      and node (liF-1, ...) to layer liF neighborhood ----
+    // For each "current" node nj1,nk1 in 2x2 layer neighborhood, test edges
+    // to a small set of next-layer targets.
+    for(int dl=0; dl<=1; dl++){
+        float li = liF + float(dl) - 1.0;  // edges starting at li-1 or li
+        if(li < 0.0 || li > 3.0) continue;
+
+        // Source node range (current layer)
+        for(int dj=-1; dj<=1; dj++){
+            for(int dk=-1; dk<=1; dk++){
+                float nj1 = njF + float(dj);
+                float nk1 = nkF + float(dk);
+                if(nj1 < 0.0 || nj1 > 4.0) continue;
+                if(nk1 < 0.0 || nk1 > 4.0) continue;
+
+                // Test 3x3 targets in next layer
+                for(int dj2=-1; dj2<=1; dj2++){
+                    for(int dk2=-1; dk2<=1; dk2++){
+                        float nj2 = njF + float(dj2);
+                        float nk2 = nkF + float(dk2);
+                        if(nj2 < 0.0 || nj2 > 4.0) continue;
+                        if(nk2 < 0.0 || nk2 > 4.0) continue;
+                        best = minD(best, evalEdge(p, li, nj1, nk1, nj2, nk2));
+                    }
+                }
+            }
+        }
+    }
+
+    return best;
+}
+
+vec3 calcNormal(vec3 p){
+    const vec2 e = vec2(0.001, 0.0);
+    return normalize(vec3(
+        mapScene(p + e.xyy).x - mapScene(p - e.xyy).x,
+        mapScene(p + e.yxy).x - mapScene(p - e.yxy).x,
+        mapScene(p + e.yyx).x - mapScene(p - e.yyx).x
+    ));
+}
+
+// Build camera basis from camPos and target
+mat3 cameraBasis(vec3 ro, vec3 ta){
+    vec3 f = normalize(ta - ro);
+    vec3 r = normalize(cross(f, vec3(0.0, 1.0, 0.0)));
+    vec3 u = cross(r, f);
+    return mat3(r, u, f);
+}
+
+void main(){
+    vec2 uv = (gl_FragCoord.xy - 0.5*u_res.xy) / u_res.y;
+
+    vec3 ro = u_camPos;
+    mat3 cam = cameraBasis(ro, u_camTarget);
+    vec3 rd = normalize(cam * vec3(uv, 1.5));
+
+    float t = 0.0;
+    vec3 glow = vec3(0.0);
+    bool hit = false;
+    vec4 hh;
+    vec3 hitP;
+
+    for(int i=0;i<80;i++){
+        vec3 p = ro + rd * t;
+        vec4 D = mapScene(p);
+        // Glow accumulation
+        float g = exp(-D.x * 5.0) * 0.04;
+        glow += D.yzw * g;
+        if(D.x < 0.005){ hit = true; hh = D; hitP = p; break; }
+        t += clamp(D.x * 0.85, 0.005, 0.4);
+        if(t > 40.0) break;
+    }
+
+    vec3 col = vec3(0.0);
+    if(hit){
+        vec3 n = calcNormal(hitP);
+        vec3 L1 = normalize(vec3(0.5, 0.7, -0.5));
+        float diff = max(dot(n, L1), 0.0);
+        float fres = pow(1.0 - max(dot(n, -rd), 0.0), 2.0);
+        // Color stored as already-emitted hh.yzw (color * emit)
+        col = hh.yzw * (0.3 + 0.6 * diff) + hh.yzw * fres * 0.8;
+    }
+    col += glow * u_glow * 2.0;
+
+    // Background
+    if(!hit){
+        col += vec3(0.005, 0.01, 0.02);
+    }
+
+    // Tone + gamma
+    col = col / (1.0 + col);
+    col = pow(max(col, 0.0), vec3(1.0/2.2));
+
+    // Vignette
+    vec2 q = gl_FragCoord.xy/u_res.xy - 0.5;
+    col *= 1.0 - 0.45 * dot(q, q);
+
+    gl_FragColor = vec4(col, 1.0);
+}
+</script>
+
+    <script>
+    const canvas = document.getElementById('c');
+    const gl = canvas.getContext('webgl', { antialias:false, powerPreference:'high-performance' });
+    if(!gl){ document.body.innerHTML='<p style="color:#f88;padding:20px">WebGL not supported.</p>'; throw 0; }
+
+    const errEl = document.getElementById('err');
+    function compile(t,s){
+        const sh=gl.createShader(t); gl.shaderSource(sh,s); gl.compileShader(sh);
+        if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+            const log = gl.getShaderInfoLog(sh);
+            console.error(log);
+            errEl.textContent = 'Shader compile error: ' + log;
+            throw new Error('compile');
+        }
+        return sh;
+    }
+    const vs = compile(gl.VERTEX_SHADER, document.getElementById('vs').text);
+    const fs = compile(gl.FRAGMENT_SHADER, document.getElementById('fs').text);
+    const prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){
+        const log = gl.getProgramInfoLog(prog);
+        console.error(log); errEl.textContent = 'Link error: ' + log;
+        throw new Error('link');
+    }
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(prog, 'a_pos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const U = n => gl.getUniformLocation(prog, n);
+    const uRes=U('u_res'), uTime=U('u_time'),
+          uLs=U('u_layerSpacing'), uNs=U('u_nodeSpacing'),
+          uThick=U('u_thick'), uSigSp=U('u_sigSpeed'), uGlow=U('u_glow'), uStyle=U('u_style'),
+          uCamPos=U('u_camPos'), uCamTarget=U('u_camTarget');
+
+    const isMobile = /Mobi|Android/i.test(navigator.userAgent) || window.innerWidth < 700;
+    const scl = isMobile ? 0.45 : 0.7;
+
+    const state = { layerSpacing:1.6, nodeSpacing:0.8, thick:0.04, sigSpeed:1.0, glow:1.0, style:0,
+        camYaw:0.6, camPitch:-0.15, camDist:11.0 };
+
+    function resize(){
+        canvas.width  = Math.floor(window.innerWidth * scl);
+        canvas.height = Math.floor(window.innerHeight * scl);
+        gl.viewport(0,0,canvas.width, canvas.height);
+    }
+    resize(); window.addEventListener('resize', resize);
+
+    const el = id => document.getElementById(id);
+    el('ls').oninput = e => { state.layerSpacing = parseFloat(e.target.value); el('vLs').textContent = state.layerSpacing.toFixed(2); };
+    el('ns').oninput = e => { state.nodeSpacing = parseFloat(e.target.value); el('vNs').textContent = state.nodeSpacing.toFixed(2); };
+    el('T').oninput = e => { state.thick = parseFloat(e.target.value); el('vT').textContent = state.thick.toFixed(3); };
+    el('Sp').oninput = e => { state.sigSpeed = parseFloat(e.target.value); el('vSp').textContent = state.sigSpeed.toFixed(2); };
+    el('G').oninput  = e => { state.glow = parseFloat(e.target.value); el('vG').textContent = state.glow.toFixed(2); };
+    el('style').onchange = e => state.style = parseInt(e.target.value);
+
+    let dragging=false, lastX=0, lastY=0;
+    canvas.addEventListener('mousedown', e => { dragging=true; lastX=e.clientX; lastY=e.clientY; });
+    window.addEventListener('mouseup', () => dragging=false);
+    window.addEventListener('mousemove', e => {
+        if(!dragging) return;
+        const dx=e.clientX-lastX, dy=e.clientY-lastY;
+        lastX=e.clientX; lastY=e.clientY;
+        state.camYaw -= dx*0.005;
+        state.camPitch = Math.max(-1.3, Math.min(1.3, state.camPitch - dy*0.005));
+    });
+    window.addEventListener('wheel', e => {
+        state.camDist = Math.max(4, Math.min(40, state.camDist * (e.deltaY > 0 ? 1.1 : 0.9)));
+        e.preventDefault();
+    }, { passive:false });
+    canvas.addEventListener('touchstart', e => { dragging=true; lastX=e.touches[0].clientX; lastY=e.touches[0].clientY; }, { passive:true });
+    canvas.addEventListener('touchmove', e => {
+        if(!dragging) return;
+        const dx=e.touches[0].clientX-lastX, dy=e.touches[0].clientY-lastY;
+        lastX=e.touches[0].clientX; lastY=e.touches[0].clientY;
+        state.camYaw -= dx*0.005;
+        state.camPitch = Math.max(-1.3, Math.min(1.3, state.camPitch - dy*0.005));
+    }, { passive:true });
+    canvas.addEventListener('touchend', () => dragging=false);
+
+    const fpsEl = el('fps');
+    let frames=0, fpsT=performance.now();
+    const t0 = performance.now();
+    function frame(now){
+        const t = (now - t0) * 0.001;
+
+        if(!dragging) state.camYaw += 0.0015;
+
+        // Compute camera position from yaw/pitch/dist orbiting around origin
+        const cx = Math.cos(state.camPitch) * Math.sin(state.camYaw) * state.camDist;
+        const cyP = Math.sin(state.camPitch) * state.camDist;
+        const cz = Math.cos(state.camPitch) * Math.cos(state.camYaw) * state.camDist;
+
+        gl.uniform2f(uRes, canvas.width, canvas.height);
+        gl.uniform1f(uTime, t);
+        gl.uniform1f(uLs, state.layerSpacing);
+        gl.uniform1f(uNs, state.nodeSpacing);
+        gl.uniform1f(uThick, state.thick);
+        gl.uniform1f(uSigSp, state.sigSpeed);
+        gl.uniform1f(uGlow, state.glow);
+        gl.uniform1i(uStyle, state.style);
+        gl.uniform3f(uCamPos, cx, cyP, cz);
+        gl.uniform3f(uCamTarget, 0, 0, 0);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        frames++;
+        if(now - fpsT > 500){
+            fpsEl.textContent = Math.round(frames * 1000/(now - fpsT)) + ' fps';
+            frames = 0; fpsT = now;
+        }
+        requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    </script>
+</body>
+</html>

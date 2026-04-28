@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reaction-Diffusion — Alien Skin</title>
+    <style>
+        html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; color:#ddd; font-family:'Segoe UI', Tahoma, sans-serif; }
+        canvas { display:block; width:100%; height:100%; cursor:crosshair; }
+        #panel {
+            position:absolute; top:12px; right:12px; width:240px;
+            padding:14px 16px; background:rgba(10,10,15,0.55);
+            backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+            border:1px solid rgba(255,255,255,0.08); border-radius:10px;
+            box-shadow:0 4px 20px rgba(0,0,0,0.5); font-size:12px; z-index:10; user-select:none;
+        }
+        #panel h3 { margin:0 0 10px 0; font-size:13px; font-weight:600; letter-spacing:.5px;
+            background:linear-gradient(90deg,#7dff9b,#ffd34f,#ff6fb4); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+        .row { display:flex; flex-direction:column; gap:3px; margin-bottom:9px; }
+        .row label { display:flex; justify-content:space-between; color:#bbb; }
+        .row label span { color:#7dff9b; font-variant-numeric: tabular-nums; }
+        input[type=range] { width:100%; accent-color:#7dff9b; }
+        button, select {
+            width:100%; padding:5px 8px; background:rgba(255,255,255,0.05);
+            border:1px solid rgba(255,255,255,0.1); border-radius:5px; color:#eee; font-size:12px; cursor:pointer;
+        }
+        button:hover, select:hover { background:rgba(255,255,255,0.1); }
+        .btn-row { display:flex; gap:6px; margin-top:6px; }
+        #hint { position:absolute; left:12px; bottom:12px; font-size:11px; color:#aaa;
+            background:rgba(0,0,0,0.45); padding:6px 10px; border-radius:6px; z-index:10; }
+    </style>
+</head>
+
+<body>
+    <canvas id="c"></canvas>
+    <div id="panel">
+        <h3>🧬 ALIEN SKIN</h3>
+        <div class="row"><label>Preset <span></span></label>
+            <select id="preset">
+                <option value="coral" selected>Coral</option>
+                <option value="spots">Spots</option>
+                <option value="mitosis">Mitosis</option>
+                <option value="maze">Maze</option>
+                <option value="holes">Holes</option>
+                <option value="spirals">Spirals</option>
+                <option value="worms">Worms</option>
+                <option value="bubbles">Bubbles</option>
+            </select>
+        </div>
+        <div class="row"><label>Feed (f) <span id="vF">0.055</span></label>
+            <input type="range" id="f" min="0.01" max="0.09" step="0.0005" value="0.055"></div>
+        <div class="row"><label>Kill (k) <span id="vK">0.062</span></label>
+            <input type="range" id="k" min="0.03" max="0.075" step="0.0005" value="0.062"></div>
+        <div class="row"><label>Steps/frame <span id="vS">12</span></label>
+            <input type="range" id="s" min="1" max="30" step="1" value="12"></div>
+        <div class="row"><label>Brush Size <span id="vB">0.02</span></label>
+            <input type="range" id="b" min="0.005" max="0.1" step="0.001" value="0.02"></div>
+        <div class="row"><label>Palette <span></span></label>
+            <select id="pal">
+                <option value="alien" selected>Alien Skin</option>
+                <option value="coral">Coral Reef</option>
+                <option value="lava">Lava</option>
+                <option value="cyanotype">Cyanotype</option>
+                <option value="gold">Gold Leaf</option>
+            </select>
+        </div>
+        <div class="btn-row">
+            <button id="clear">Clear</button>
+            <button id="seed">Random Seed</button>
+        </div>
+    </div>
+    <div id="hint">Drag to paint • Try different presets</div>
+
+    <script type="x-shader/x-vertex" id="vs">
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main(){ v_uv = a_pos*0.5+0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }
+</script>
+
+    <!-- Gray-Scott step: R=U, G=V -->
+    <script type="x-shader/x-fragment" id="fsStep">
+precision highp float;
+varying vec2 v_uv;
+uniform sampler2D u_state;
+uniform vec2 u_texel;
+uniform float u_f;
+uniform float u_k;
+uniform float u_du;
+uniform float u_dv;
+void main(){
+    vec2 uv = v_uv;
+    vec2 c = texture2D(u_state, uv).xy;
+    // 9-point Laplacian (better isotropy)
+    vec2 t  = texture2D(u_state, uv + vec2(0.0, u_texel.y)).xy;
+    vec2 b  = texture2D(u_state, uv - vec2(0.0, u_texel.y)).xy;
+    vec2 l  = texture2D(u_state, uv - vec2(u_texel.x, 0.0)).xy;
+    vec2 r  = texture2D(u_state, uv + vec2(u_texel.x, 0.0)).xy;
+    vec2 tl = texture2D(u_state, uv + vec2(-u_texel.x, u_texel.y)).xy;
+    vec2 tr = texture2D(u_state, uv + vec2( u_texel.x, u_texel.y)).xy;
+    vec2 bl = texture2D(u_state, uv + vec2(-u_texel.x,-u_texel.y)).xy;
+    vec2 br = texture2D(u_state, uv + vec2( u_texel.x,-u_texel.y)).xy;
+    vec2 lap = (t + b + l + r) * 0.2 + (tl + tr + bl + br) * 0.05 - c;
+
+    float u = c.x, v = c.y;
+    float uvv = u * v * v;
+    float du = u_du * lap.x - uvv + u_f * (1.0 - u);
+    float dv = u_dv * lap.y + uvv - (u_f + u_k) * v;
+    vec2 next = clamp(c + vec2(du, dv), 0.0, 1.0);
+    gl_FragColor = vec4(next, 0.0, 1.0);
+}
+</script>
+
+    <!-- Paint into state -->
+    <script type="x-shader/x-fragment" id="fsPaint">
+precision highp float;
+varying vec2 v_uv;
+uniform sampler2D u_state;
+uniform vec2 u_point;
+uniform float u_radius;
+uniform float u_aspect;
+uniform float u_mode; // 0 = paint V=1, 1 = erase (V=0, U=1)
+void main(){
+    vec2 p = v_uv - u_point;
+    p.x *= u_aspect;
+    float d = length(p);
+    vec2 c = texture2D(u_state, v_uv).xy;
+    float amt = smoothstep(u_radius, 0.0, d);
+    if(u_mode < 0.5){
+        c.y = max(c.y, amt);
+        c.x = mix(c.x, 0.5, amt * 0.7);
+    } else {
+        c.y = mix(c.y, 0.0, amt);
+        c.x = mix(c.x, 1.0, amt);
+    }
+    gl_FragColor = vec4(c, 0.0, 1.0);
+}
+</script>
+
+    <!-- Seed: u=1, v=0 everywhere, small random patches of v -->
+    <script type="x-shader/x-fragment" id="fsSeed">
+precision highp float;
+varying vec2 v_uv;
+uniform float u_seed;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)) + u_seed) * 43758.5453); }
+void main(){
+    float u = 1.0;
+    float v = 0.0;
+    // Scatter patches
+    vec2 g = floor(v_uv * 20.0);
+    float h = hash(g);
+    if(h > 0.75){
+        vec2 p = fract(v_uv * 20.0) - 0.5;
+        float r = length(p);
+        v = smoothstep(0.4, 0.1, r) * 0.8;
+        u = 1.0 - v * 0.5;
+    }
+    gl_FragColor = vec4(u, v, 0.0, 1.0);
+}
+</script>
+
+    <!-- Display with fancy palettes + height-field shading -->
+    <script type="x-shader/x-fragment" id="fsDisplay">
+precision highp float;
+varying vec2 v_uv;
+uniform sampler2D u_state;
+uniform vec2 u_texel;
+uniform int u_palette;
+uniform float u_time;
+
+vec3 palAlien(float t){
+    vec3 a = vec3(0.15, 0.25, 0.2);
+    vec3 b = vec3(0.6, 0.4, 0.5);
+    vec3 c = vec3(1.0, 1.2, 0.8);
+    vec3 d = vec3(0.25, 0.15, 0.6);
+    return a + b * cos(6.2831*(c*t + d));
+}
+vec3 palCoral(float t){
+    return mix(vec3(0.02,0.06,0.15), vec3(1.0,0.55,0.4), smoothstep(0.0,0.7,t))
+         + vec3(0.9,0.7,0.3) * smoothstep(0.7,1.0,t);
+}
+vec3 palLava(float t){
+    return vec3(pow(t,0.5), pow(max(t-0.2,0.0),1.8), pow(max(t-0.55,0.0),4.0));
+}
+vec3 palCyan(float t){
+    return mix(vec3(0.02,0.04,0.1), vec3(0.9,0.98,1.0), smoothstep(0.0,0.95,pow(t,0.7)));
+}
+vec3 palGold(float t){
+    vec3 lo = vec3(0.05,0.03,0.01);
+    vec3 mid = vec3(0.7,0.5,0.15);
+    vec3 hi = vec3(1.0,0.95,0.7);
+    return mix(mix(lo,mid,smoothstep(0.0,0.5,t)), hi, smoothstep(0.5,1.0,t));
+}
+
+vec3 pickPalette(float t){
+    if(u_palette == 0) return palAlien(t);
+    if(u_palette == 1) return palCoral(t);
+    if(u_palette == 2) return palLava(t);
+    if(u_palette == 3) return palCyan(t);
+    return palGold(t);
+}
+
+void main(){
+    float c  = texture2D(u_state, v_uv).y;
+    float l  = texture2D(u_state, v_uv - vec2(u_texel.x,0.0)).y;
+    float r  = texture2D(u_state, v_uv + vec2(u_texel.x,0.0)).y;
+    float b  = texture2D(u_state, v_uv - vec2(0.0,u_texel.y)).y;
+    float t  = texture2D(u_state, v_uv + vec2(0.0,u_texel.y)).y;
+
+    // Height-field normal
+    vec3 n = normalize(vec3((l - r) * 30.0, (b - t) * 30.0, 1.0));
+    vec3 L = normalize(vec3(sin(u_time*0.2)*0.5, 0.6, 0.8));
+    float diff = max(dot(n, L), 0.0);
+    float spec = pow(max(dot(reflect(-L, n), vec3(0.0,0.0,1.0)), 0.0), 32.0);
+
+    float shade = c;
+    vec3 col = pickPalette(shade);
+    col *= 0.4 + 0.9 * diff;
+    col += vec3(1.0) * spec * 0.3 * smoothstep(0.1, 0.5, c);
+
+    // Subtle rim on pattern edges
+    float edge = length(vec2(r-l, t-b));
+    col += vec3(0.3, 0.6, 0.9) * smoothstep(0.02, 0.08, edge) * 0.15;
+
+    // Tone + gamma
+    col = col / (1.0 + col);
+    col = pow(col, vec3(1.0/2.2));
+
+    // Vignette
+    vec2 q = v_uv - 0.5;
+    col *= 1.0 - 0.35*dot(q,q);
+
+    gl_FragColor = vec4(col, 1.0);
+}
+</script>
+
+    <script>
+    const canvas = document.getElementById('c');
+    const gl = canvas.getContext('webgl', { alpha:false, antialias:false, depth:false, stencil:false });
+    if(!gl){ document.body.innerHTML='<p style="color:#f88;padding:20px">WebGL not supported.</p>'; throw 0; }
+    const extHF = gl.getExtension('OES_texture_half_float');
+    const extHFL = gl.getExtension('OES_texture_half_float_linear');
+    const extFL = gl.getExtension('OES_texture_float');
+    const extFLL = gl.getExtension('OES_texture_float_linear');
+    let TYPE, FILTER;
+    if(extHF){ TYPE = extHF.HALF_FLOAT_OES; FILTER = extHFL ? gl.LINEAR : gl.NEAREST; }
+    else if(extFL){ TYPE = gl.FLOAT; FILTER = extFLL ? gl.LINEAR : gl.NEAREST; }
+    else { TYPE = gl.UNSIGNED_BYTE; FILTER = gl.LINEAR; }
+
+    function compile(type, src){
+        const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+        if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(s)); throw new Error('compile'); }
+        return s;
+    }
+    const vs = compile(gl.VERTEX_SHADER, document.getElementById('vs').text);
+    function program(id){
+        const fs = compile(gl.FRAGMENT_SHADER, document.getElementById(id).text);
+        const p = gl.createProgram(); gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+        if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(p)); throw new Error('link '+id); }
+        return p;
+    }
+    const pStep = program('fsStep');
+    const pPaint = program('fsPaint');
+    const pSeed = program('fsSeed');
+    const pDisp = program('fsDisplay');
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+    function bindQuad(p){
+        const loc = gl.getAttribLocation(p, 'a_pos');
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    function makeFBO(w,h){
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, FILTER);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, FILTER);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, TYPE, null);
+        const fbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        return { tex, fbo, w, h, texel:[1/w, 1/h] };
+    }
+
+    const isMobile = /Mobi|Android/i.test(navigator.userAgent) || window.innerWidth < 700;
+    const SIM_SCALE = isMobile ? 0.45 : 0.7;
+
+    let state0, state1;
+    function allocSim(){
+        const w = Math.max(128, Math.floor(window.innerWidth  * SIM_SCALE));
+        const h = Math.max(128, Math.floor(window.innerHeight * SIM_SCALE));
+        state0 = makeFBO(w, h);
+        state1 = makeFBO(w, h);
+        seedGrid();
+    }
+    function resizeCanvas(){
+        canvas.width = Math.floor(window.innerWidth  * (isMobile ? 0.8 : 1.0));
+        canvas.height = Math.floor(window.innerHeight * (isMobile ? 0.8 : 1.0));
+    }
+    resizeCanvas();
+    allocSim();
+    window.addEventListener('resize', () => { resizeCanvas(); allocSim(); });
+
+    function bindFBO(f){
+        gl.bindFramebuffer(gl.FRAMEBUFFER, f ? f.fbo : null);
+        gl.viewport(0, 0, f ? f.w : canvas.width, f ? f.h : canvas.height);
+    }
+    function useProg(p){ gl.useProgram(p); bindQuad(p); }
+    function drawQuad(){ gl.drawArrays(gl.TRIANGLES, 0, 6); }
+
+    function seedGrid(){
+        useProg(pSeed);
+        bindFBO(state0);
+        gl.uniform1f(gl.getUniformLocation(pSeed, 'u_seed'), Math.random() * 1000.0);
+        drawQuad();
+        bindFBO(state1);
+        drawQuad();
+    }
+
+    function clearGrid(){
+        // U = 1, V = 0
+        useProg(pSeed);
+        bindFBO(state0);
+        gl.uniform1f(gl.getUniformLocation(pSeed, 'u_seed'), -999.0); // hash will still scatter; fine
+        drawQuad();
+        // Actually we want pure clear: use framebuffer clear hack — easier: just set a constant shader. But for simplicity reseed without patches:
+        // Overwrite with a minimal version: bind fbo and clear
+        gl.bindFramebuffer(gl.FRAMEBUFFER, state0.fbo);
+        gl.clearColor(1.0, 0.0, 0.0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, state1.fbo);
+        gl.clearColor(1.0, 0.0, 0.0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+
+    // ---------- State ----------
+    const presets = {
+        coral:   { f:0.0545, k:0.062 },
+        spots:   { f:0.035,  k:0.065 },
+        mitosis: { f:0.0367, k:0.0649 },
+        maze:    { f:0.029,  k:0.057 },
+        holes:   { f:0.039,  k:0.058 },
+        spirals: { f:0.018,  k:0.051 },
+        worms:   { f:0.046,  k:0.063 },
+        bubbles: { f:0.098,  k:0.057 }
+    };
+    const state = {
+        f: 0.055, k: 0.062,
+        du: 1.0, dv: 0.5,
+        steps: isMobile ? 6 : 12,
+        brush: 0.02,
+        palette: 0
+    };
+
+    const el = id => document.getElementById(id);
+    el('f').oninput = e => { state.f = parseFloat(e.target.value); el('vF').textContent = state.f.toFixed(4); };
+    el('k').oninput = e => { state.k = parseFloat(e.target.value); el('vK').textContent = state.k.toFixed(4); };
+    el('s').oninput = e => { state.steps = parseInt(e.target.value); el('vS').textContent = state.steps; };
+    el('b').oninput = e => { state.brush = parseFloat(e.target.value); el('vB').textContent = state.brush.toFixed(3); };
+    el('preset').onchange = e => {
+        const p = presets[e.target.value];
+        state.f = p.f; state.k = p.k;
+        el('f').value = state.f; el('vF').textContent = state.f.toFixed(4);
+        el('k').value = state.k; el('vK').textContent = state.k.toFixed(4);
+    };
+    el('pal').onchange = e => {
+        state.palette = { alien:0, coral:1, lava:2, cyanotype:3, gold:4 }[e.target.value];
+    };
+    el('clear').onclick = clearGrid;
+    el('seed').onclick = seedGrid;
+
+    // ---------- Pointer ----------
+    let painting = false, erasing = false;
+    let lastP = null;
+
+    function pointerPos(cx, cy){
+        const r = canvas.getBoundingClientRect();
+        return { x: (cx - r.left) / r.width, y: 1.0 - (cy - r.top) / r.height };
+    }
+
+    function paintAt(p, mode){
+        useProg(pPaint);
+        bindFBO(state1);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, state0.tex);
+        gl.uniform1i(gl.getUniformLocation(pPaint, 'u_state'), 0);
+        gl.uniform2f(gl.getUniformLocation(pPaint, 'u_point'), p.x, p.y);
+        gl.uniform1f(gl.getUniformLocation(pPaint, 'u_radius'), state.brush);
+        gl.uniform1f(gl.getUniformLocation(pPaint, 'u_aspect'), state0.w / state0.h);
+        gl.uniform1f(gl.getUniformLocation(pPaint, 'u_mode'), mode);
+        drawQuad();
+        const tmp = state0; state0 = state1; state1 = tmp;
+    }
+
+    canvas.addEventListener('mousedown', e => {
+        painting = true;
+        erasing = e.button === 2 || e.shiftKey;
+        const p = pointerPos(e.clientX, e.clientY);
+        lastP = p;
+        paintAt(p, erasing ? 1 : 0);
+    });
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+    window.addEventListener('mouseup', () => { painting = false; lastP = null; });
+    window.addEventListener('mousemove', e => {
+        if(!painting) return;
+        const p = pointerPos(e.clientX, e.clientY);
+        if(lastP){
+            // Stamp along the segment for continuous strokes
+            const steps = Math.max(1, Math.floor(Math.hypot(p.x-lastP.x, p.y-lastP.y) / (state.brush * 0.5)));
+            for(let i=1;i<=steps;i++){
+                const t = i/steps;
+                paintAt({ x: lastP.x + (p.x-lastP.x)*t, y: lastP.y + (p.y-lastP.y)*t }, erasing ? 1 : 0);
+            }
+        } else {
+            paintAt(p, erasing ? 1 : 0);
+        }
+        lastP = p;
+    });
+    canvas.addEventListener('touchstart', e => {
+        painting = true;
+        const t = e.touches[0];
+        const p = pointerPos(t.clientX, t.clientY);
+        lastP = p;
+        paintAt(p, 0);
+    }, { passive:true });
+    canvas.addEventListener('touchmove', e => {
+        if(!painting) return;
+        const t = e.touches[0];
+        const p = pointerPos(t.clientX, t.clientY);
+        if(lastP){
+            const steps = Math.max(1, Math.floor(Math.hypot(p.x-lastP.x, p.y-lastP.y) / (state.brush * 0.5)));
+            for(let i=1;i<=steps;i++){
+                const tt = i/steps;
+                paintAt({ x: lastP.x + (p.x-lastP.x)*tt, y: lastP.y + (p.y-lastP.y)*tt }, 0);
+            }
+        }
+        lastP = p;
+    }, { passive:true });
+    canvas.addEventListener('touchend', () => { painting = false; lastP = null; });
+
+    // ---------- Loop ----------
+    const t0 = performance.now();
+    function frame(now){
+        // Simulate N steps per frame
+        useProg(pStep);
+        for(let i=0;i<state.steps;i++){
+            bindFBO(state1);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, state0.tex);
+            gl.uniform1i(gl.getUniformLocation(pStep, 'u_state'), 0);
+            gl.uniform2f(gl.getUniformLocation(pStep, 'u_texel'), state0.texel[0], state0.texel[1]);
+            gl.uniform1f(gl.getUniformLocation(pStep, 'u_f'), state.f);
+            gl.uniform1f(gl.getUniformLocation(pStep, 'u_k'), state.k);
+            gl.uniform1f(gl.getUniformLocation(pStep, 'u_du'), state.du);
+            gl.uniform1f(gl.getUniformLocation(pStep, 'u_dv'), state.dv);
+            drawQuad();
+            const tmp = state0; state0 = state1; state1 = tmp;
+        }
+
+        // Display
+        useProg(pDisp);
+        bindFBO(null);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, state0.tex);
+        gl.uniform1i(gl.getUniformLocation(pDisp, 'u_state'), 0);
+        gl.uniform2f(gl.getUniformLocation(pDisp, 'u_texel'), state0.texel[0], state0.texel[1]);
+        gl.uniform1i(gl.getUniformLocation(pDisp, 'u_palette'), state.palette);
+        gl.uniform1f(gl.getUniformLocation(pDisp, 'u_time'), (now - t0) * 0.001);
+        drawQuad();
+
+        requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    </script>
+</body>
+</html>

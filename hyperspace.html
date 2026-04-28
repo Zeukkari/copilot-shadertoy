@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hyperspace — Tunnel Flythrough</title>
+    <style>
+        html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; color:#ddd; font-family:'Segoe UI', Tahoma, sans-serif; }
+        canvas { display:block; width:100%; height:100%; }
+        #panel {
+            position:absolute; top:12px; right:12px; width:240px;
+            padding:14px 16px; background:rgba(10,8,18,0.55);
+            backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+            border:1px solid rgba(255,255,255,0.08); border-radius:10px;
+            box-shadow:0 4px 20px rgba(0,0,0,0.5); font-size:12px; z-index:10; user-select:none;
+        }
+        #panel h3 { margin:0 0 10px 0; font-size:13px; font-weight:600; letter-spacing:.5px;
+            background:linear-gradient(90deg,#ff2bd6,#00f5ff,#ffea00); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+        .row { display:flex; flex-direction:column; gap:3px; margin-bottom:9px; }
+        .row label { display:flex; justify-content:space-between; color:#bbb; }
+        .row label span { color:#00f5ff; font-variant-numeric:tabular-nums; }
+        input[type=range] { width:100%; accent-color:#ff2bd6; }
+        select, button {
+            width:100%; padding:5px 8px; background:rgba(255,255,255,0.05);
+            border:1px solid rgba(255,255,255,0.1); border-radius:5px; color:#eee; font-size:12px; cursor:pointer;
+        }
+        button:hover, select:hover { background:rgba(255,255,255,0.1); }
+        .btn-row { display:flex; gap:6px; margin-top:6px; }
+        .toggle { display:flex; align-items:center; gap:6px; }
+        #hint { position:absolute; left:12px; bottom:12px; font-size:11px; color:#aaa;
+            background:rgba(0,0,0,0.45); padding:6px 10px; border-radius:6px; z-index:10; }
+        #fps { position:absolute; left:12px; top:12px; font-size:11px; color:#0f5; opacity:.6; z-index:10; }
+    </style>
+</head>
+
+<body>
+    <canvas id="c"></canvas>
+    <div id="fps"></div>
+    <div id="panel">
+        <h3>✦ HYPERSPACE</h3>
+        <div class="row"><label class="toggle"><input type="checkbox" id="auto" checked> Autopilot bank</label></div>
+        <div class="row"><label>Fly Speed <span id="vSpd">1.0</span></label>
+            <input type="range" id="spd" min="0" max="4" step="0.01" value="1.0"></div>
+        <div class="row"><label>Tunnel Twist <span id="vTw">0.30</span></label>
+            <input type="range" id="tw" min="0" max="2" step="0.01" value="0.30"></div>
+        <div class="row"><label>Wall Detail <span id="vDt">0.6</span></label>
+            <input type="range" id="dt" min="0" max="1.5" step="0.01" value="0.6"></div>
+        <div class="row"><label>Symmetry <span id="vSy">8</span></label>
+            <input type="range" id="sy" min="0" max="20" step="1" value="8"></div>
+        <div class="row"><label>Glow <span id="vGl">1.0</span></label>
+            <input type="range" id="gl" min="0" max="3" step="0.01" value="1.0"></div>
+        <div class="row"><label>Palette <span></span></label>
+            <select id="pal">
+                <option value="neon" selected>Neon Vapor</option>
+                <option value="acid">Acid Trip</option>
+                <option value="crystal">Crystal Ice</option>
+                <option value="rust">Rust Nebula</option>
+                <option value="oblivion">Oblivion</option>
+            </select>
+        </div>
+        <div class="btn-row">
+            <button id="warp">Warp! (Space)</button>
+            <button id="audio">Start Audio</button>
+        </div>
+    </div>
+    <div id="hint">Space = Warp • Drag = look • Mouse wheel = speed</div>
+
+    <script type="x-shader/x-vertex" id="vs">
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main(){ v_uv = a_pos*0.5+0.5; gl_Position = vec4(a_pos,0.0,1.0); }
+</script>
+
+    <script type="x-shader/x-fragment" id="fs">
+precision highp float;
+varying vec2 v_uv;
+
+uniform vec2  u_res;
+uniform float u_time;
+uniform float u_travel;
+uniform float u_twist;
+uniform float u_detail;
+uniform float u_sym;
+uniform float u_glow;
+uniform int   u_palette;
+uniform float u_warp;
+uniform float u_pulse;     // 0..1 audio-reactive pulse
+uniform vec2  u_look;      // yaw, pitch
+
+// ---------- Hash / noise ----------
+float hash(vec3 p){
+    p = fract(p * vec3(443.897, 441.423, 437.195));
+    p += dot(p, p.yzx + 19.19);
+    return fract((p.x + p.y) * p.z);
+}
+float vnoise(vec3 p){
+    vec3 i = floor(p), f = fract(p);
+    f = f*f*(3.0-2.0*f);
+    float n000 = hash(i+vec3(0,0,0));
+    float n100 = hash(i+vec3(1,0,0));
+    float n010 = hash(i+vec3(0,1,0));
+    float n110 = hash(i+vec3(1,1,0));
+    float n001 = hash(i+vec3(0,0,1));
+    float n101 = hash(i+vec3(1,0,1));
+    float n011 = hash(i+vec3(0,1,1));
+    float n111 = hash(i+vec3(1,1,1));
+    return mix(mix(mix(n000,n100,f.x), mix(n010,n110,f.x), f.y),
+               mix(mix(n001,n101,f.x), mix(n011,n111,f.x), f.y), f.z);
+}
+float fbm(vec3 p){
+    float v=0.0, a=0.5;
+    for(int i=0;i<4;i++){ v += a*vnoise(p); p = p*2.03 + 11.7; a *= 0.5; }
+    return v;
+}
+
+mat2 rot(float a){ float c=cos(a),s=sin(a); return mat2(c,-s,s,c); }
+
+// ---------- Tunnel path (smooth wandering centerline) ----------
+vec2 tunnelCenter(float z){
+    return vec2(
+        sin(z * 0.07) * 1.6 + cos(z * 0.13) * 0.6,
+        cos(z * 0.05) * 1.4 + sin(z * 0.11) * 0.5
+    );
+}
+
+// ---------- Scene SDF ----------
+// d.x = distance, d.y = orbit-trap value, d.z = wall pulse
+vec3 sceneDE(vec3 p){
+    float z = p.z + u_travel;
+
+    // Move tunnel through space — translate XY by centerline
+    vec2 cc = tunnelCenter(z);
+    p.xy -= cc;
+
+    // Twist around z
+    p.xy *= rot(z * u_twist * 0.04 + u_time * 0.05);
+
+    // Polar kaleidoscope
+    if(u_sym >= 1.0){
+        float seg = 6.2831853 / u_sym;
+        float a = atan(p.y, p.x);
+        float r = length(p.xy);
+        a = mod(a + seg*0.5, seg) - seg*0.5;
+        p.xy = vec2(cos(a), sin(a)) * r;
+    }
+
+    float r = length(p.xy);
+
+    // Base tunnel radius pulses with rings + audio
+    float ringFreq = 0.45;
+    float ring = 0.6 + 0.25 * sin(z * ringFreq);
+    float baseR = 1.7 + ring + u_pulse * 0.4;
+
+    // Wall detail: layered noise modulating the radius
+    vec3 np = vec3(p.xy * 1.5, z * 0.25);
+    float n1 = fbm(np);
+    float n2 = vnoise(np * 4.0 + vec3(0.0, 0.0, u_time * 0.3));
+    float wallMod = (n1 - 0.5) * u_detail + n2 * 0.15 * u_detail;
+
+    // Distance to tunnel wall, positive inside cavity (free space), zero at surface,
+    // negative when ray has poked through the wall. This is what the raymarcher wants.
+    float d = baseR - r + wallMod;
+
+    // Add ridges using noise as displacement (subtract -> walls bulge inward, shrinking d)
+    d -= 0.05 * sin(z * 2.0 + r * 4.0) * u_detail;
+
+    // Orbit trap: combine radial position + noise for color variety
+    float trap = 0.5 + 0.5 * sin(z * 0.2 + n1 * 3.0 + r * 0.5);
+
+    // Pulse along walls
+    float pulse = 0.5 + 0.5 * sin(z * 0.3 - u_time * 2.0 + n1 * 6.0);
+
+    return vec3(d, trap, pulse);
+}
+
+// ---------- Palettes ----------
+vec3 palNeon(float t){
+    return 0.5 + 0.5*cos(6.2831*(vec3(1.0,0.9,0.7)*t + vec3(0.0,0.33,0.67)));
+}
+vec3 palAcid(float t){
+    return 0.5 + 0.5*cos(6.2831*(vec3(2.0,1.5,0.8)*t + vec3(0.1,0.3,0.8)));
+}
+vec3 palCrystal(float t){
+    return mix(vec3(0.05,0.15,0.4), vec3(0.7,0.95,1.0), smoothstep(0.0,0.7,t))
+         + vec3(0.6,0.8,1.0) * smoothstep(0.7,1.0,t);
+}
+vec3 palRust(float t){
+    return mix(vec3(0.05,0.01,0.02), vec3(0.95,0.35,0.1), smoothstep(0.0,0.6,t))
+         + vec3(1.0,0.75,0.35) * smoothstep(0.6,1.0,t);
+}
+vec3 palOblivion(float t){
+    return mix(vec3(0.0,0.0,0.05), vec3(0.4,0.05,0.6), smoothstep(0.0,0.5,t))
+         + vec3(1.0,0.2,0.7) * smoothstep(0.55,1.0,t)
+         + vec3(0.0,0.5,0.8) * smoothstep(0.85,1.0,1.0-t);
+}
+vec3 pal(float t){
+    if(u_palette == 0) return palNeon(t);
+    if(u_palette == 1) return palAcid(t);
+    if(u_palette == 2) return palCrystal(t);
+    if(u_palette == 3) return palRust(t);
+    return palOblivion(t);
+}
+
+// ---------- Normal ----------
+vec3 calcNormal(vec3 p){
+    const vec2 e = vec2(0.002, 0.0);
+    return normalize(vec3(
+        sceneDE(p + e.xyy).x - sceneDE(p - e.xyy).x,
+        sceneDE(p + e.yxy).x - sceneDE(p - e.yxy).x,
+        sceneDE(p + e.yyx).x - sceneDE(p - e.yyx).x
+    ));
+}
+
+// ---------- Camera ----------
+mat3 lookMat(vec2 a){
+    float cy=cos(a.x), sy=sin(a.x), cp=cos(a.y), sp=sin(a.y);
+    mat3 yaw   = mat3(cy,0.0,-sy, 0.0,1.0,0.0, sy,0.0,cy);
+    mat3 pitch = mat3(1.0,0.0,0.0, 0.0,cp,sp, 0.0,-sp,cp);
+    return yaw * pitch;
+}
+
+void main(){
+    vec2 fragUv = (gl_FragCoord.xy - 0.5*u_res.xy) / u_res.y;
+
+    // Warp lens stretch
+    float warp = u_warp;
+    fragUv *= 1.0 - 0.4 * warp;
+
+    // Camera at origin (XY), facing +Z. Auto-bank toward upcoming centerline.
+    vec2 nextC = tunnelCenter(u_travel + 4.0);
+    vec2 nowC  = tunnelCenter(u_travel);
+    vec2 bank  = (nextC - nowC) * 0.15;
+
+    vec3 ro = vec3(0.0, 0.0, 0.0);
+    vec3 rdLocal = normalize(vec3(fragUv, 1.3 + warp * 1.2));
+
+    // Apply look + bank
+    mat3 cam = lookMat(u_look + bank);
+    vec3 rd = cam * rdLocal;
+
+    float t = 0.1; // start a touch into the tunnel
+    vec3 glowCol = vec3(0.0);
+    float lastTrap = 0.0;
+    float lastPulse = 0.0;
+    bool hit = false;
+    vec3 hitP;
+
+    for(int i=0;i<110;i++){
+        vec3 p = ro + rd * t;
+        vec3 D = sceneDE(p);
+        float d = D.x;
+        lastTrap = D.y;
+        lastPulse = D.z;
+
+        // Glow: subtle wall proximity, distance-attenuated so far walls don't dominate
+        float gw = exp(-max(d, 0.0) * 5.0) * exp(-t * 0.08) * 0.012;
+        glowCol += pal(D.y + u_time * 0.04) * gw * (0.4 + 0.6 * D.z);
+
+        if(d < 0.003){ hit = true; hitP = p; break; }
+        t += clamp(d * 0.85, 0.005, 0.4);
+        if(t > 30.0) break;
+    }
+
+    vec3 col = vec3(0.0);
+
+    if(hit){
+        // SDF is positive inside cavity; gradient points OUTWARD (toward free space).
+        // The surface normal facing the camera (which is in free space) is +grad.
+        vec3 n = calcNormal(hitP);
+        // Two moving lights inside the tunnel
+        vec3 L1 = normalize(vec3(sin(u_time*0.7), cos(u_time*0.5), -1.0));
+        vec3 L2 = normalize(vec3(-cos(u_time*0.4), sin(u_time*0.3), -0.7));
+        float diff1 = max(dot(n, L1), 0.0);
+        float diff2 = max(dot(n, L2), 0.0);
+
+        vec3 base = pal(lastTrap + u_time * 0.03);
+        vec3 alt  = pal(lastTrap + 0.4);
+        col = base * (0.15 + 0.75*diff1) + alt * 0.35 * diff2;
+
+        // Fresnel rim — strong at glancing angles
+        float fres = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
+        col += pal(lastTrap + 0.6) * fres * (0.7 + 0.5 * u_pulse);
+
+        // Pulse highlights along walls
+        col += base * lastPulse * 0.35 * (0.4 + 0.6 * u_pulse);
+
+        // Distance fog into glow (much gentler — preserves wall detail)
+        float fog = 1.0 - exp(-t * 0.10);
+        col = mix(col, glowCol * 1.5, fog * 0.45);
+    } else {
+        // Sky never seen ideally; if it happens, show faint glow only
+        col = glowCol * 1.2;
+    }
+
+    // Add accumulated glow as soft bloom (much reduced)
+    col += glowCol * u_glow * 0.6;
+
+    // Warp streaks
+    if(warp > 0.01){
+        float ang = atan(fragUv.y, fragUv.x);
+        float r = length(fragUv);
+        float streak = pow(0.5 + 0.5*sin(ang * 60.0 + u_travel * 8.0), 2.0);
+        col += pal(lastTrap + 0.5) * warp * streak * smoothstep(0.05, 0.6, r) * 0.6;
+    }
+
+    // Beat flash
+    col *= 1.0 + u_pulse * 0.18;
+
+    // Cheap chromatic aberration via per-channel scale of glow
+    float r2 = dot(fragUv, fragUv);
+    col.r *= 1.0 + 0.06 * r2 + warp * 0.3 * r2;
+    col.b *= 1.0 - 0.04 * r2;
+
+    // Filmic-ish tone
+    col = col / (1.0 + col);
+    col = pow(max(col, 0.0), vec3(1.0/2.2));
+
+    // Vignette
+    vec2 q = gl_FragCoord.xy / u_res.xy - 0.5;
+    col *= 1.0 - 0.5 * dot(q, q);
+
+    // Circular porthole mask — tunnel only fills the middle of the screen,
+    // fading softly to black toward the corners. Aspect-corrected so the
+    // mask is a true circle regardless of viewport ratio.
+    vec2 pUv = (gl_FragCoord.xy - 0.5*u_res.xy) / min(u_res.x, u_res.y);
+    float pr = length(pUv);
+    // Inner radius fully opaque, outer radius fully black
+    float mask = 1.0 - smoothstep(0.36, 0.50, pr);
+    col *= mask;
+
+    gl_FragColor = vec4(col, 1.0);
+}
+</script>
+
+    <script>
+    const canvas = document.getElementById('c');
+    const gl = canvas.getContext('webgl', { antialias:false, powerPreference:'high-performance' });
+    if(!gl){ document.body.innerHTML='<p style="color:#f88;padding:20px">WebGL not supported.</p>'; throw 0; }
+
+    function compile(t,s){
+        const sh=gl.createShader(t); gl.shaderSource(sh,s); gl.compileShader(sh);
+        if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(sh)); throw 0; }
+        return sh;
+    }
+    const vs = compile(gl.VERTEX_SHADER, document.getElementById('vs').text);
+    const fs = compile(gl.FRAGMENT_SHADER, document.getElementById('fs').text);
+    const prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(prog)); throw 0; }
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(prog, 'a_pos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const U = name => gl.getUniformLocation(prog, name);
+    const uRes=U('u_res'), uTime=U('u_time'), uTravel=U('u_travel'),
+          uTwist=U('u_twist'), uDetail=U('u_detail'), uSym=U('u_sym'),
+          uGlow=U('u_glow'), uPal=U('u_palette'), uWarp=U('u_warp'),
+          uPulse=U('u_pulse'), uLook=U('u_look');
+
+    const isMobile = /Mobi|Android/i.test(navigator.userAgent) || window.innerWidth < 700;
+    let scl = isMobile ? 0.55 : 0.85;
+
+    const state = {
+        auto: true, speed: 1.0, twist: 0.30, detail: 0.6, sym: 8, glow: 1.0, palette: 0,
+        travel: 0.0, warp: 0.0, warpTarget: 0.0, look: [0,0], pulse: 0
+    };
+
+    function resize(){
+        canvas.width = Math.floor(window.innerWidth * scl);
+        canvas.height = Math.floor(window.innerHeight * scl);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+    resize(); window.addEventListener('resize', resize);
+
+    const el = id => document.getElementById(id);
+    el('auto').onchange = e => state.auto = e.target.checked;
+    el('spd').oninput = e => { state.speed = parseFloat(e.target.value); el('vSpd').textContent = state.speed.toFixed(2); };
+    el('tw').oninput = e => { state.twist = parseFloat(e.target.value); el('vTw').textContent = state.twist.toFixed(2); };
+    el('dt').oninput = e => { state.detail = parseFloat(e.target.value); el('vDt').textContent = state.detail.toFixed(2); };
+    el('sy').oninput = e => { state.sym = parseInt(e.target.value); el('vSy').textContent = state.sym; };
+    el('gl').oninput = e => { state.glow = parseFloat(e.target.value); el('vGl').textContent = state.glow.toFixed(2); };
+    el('pal').onchange = e => state.palette = { neon:0, acid:1, crystal:2, rust:3, oblivion:4 }[e.target.value];
+    el('warp').onclick = () => { state.warpTarget = 1.0; };
+
+    // Drag look
+    let dragging = false, lastX=0, lastY=0;
+    canvas.addEventListener('mousedown', e => { dragging=true; lastX=e.clientX; lastY=e.clientY; });
+    window.addEventListener('mouseup', () => dragging=false);
+    window.addEventListener('mousemove', e => {
+        if(!dragging) return;
+        const dx=e.clientX-lastX, dy=e.clientY-lastY;
+        lastX=e.clientX; lastY=e.clientY;
+        state.look[0] -= dx*0.003;
+        state.look[1] = Math.max(-0.7, Math.min(0.7, state.look[1] + dy*0.003));
+    });
+    // Wheel speed
+    window.addEventListener('wheel', e => {
+        state.speed = Math.max(0, Math.min(4, state.speed + (e.deltaY < 0 ? 0.15 : -0.15)));
+        el('spd').value = state.speed; el('vSpd').textContent = state.speed.toFixed(2);
+        e.preventDefault();
+    }, { passive:false });
+    // Touch
+    canvas.addEventListener('touchstart', e => { dragging=true; lastX=e.touches[0].clientX; lastY=e.touches[0].clientY; }, { passive:true });
+    canvas.addEventListener('touchmove', e => {
+        if(!dragging) return;
+        const dx=e.touches[0].clientX-lastX, dy=e.touches[0].clientY-lastY;
+        lastX=e.touches[0].clientX; lastY=e.touches[0].clientY;
+        state.look[0] -= dx*0.003;
+        state.look[1] = Math.max(-0.7, Math.min(0.7, state.look[1] + dy*0.003));
+    }, { passive:true });
+    canvas.addEventListener('touchend', () => dragging=false);
+
+    window.addEventListener('keydown', e => {
+        if(e.key === ' ') { state.warpTarget = 1.0; e.preventDefault(); }
+    });
+
+    // ---------- Audio: pulsing kick + drone, drives u_pulse via FFT ----------
+    let audioCtx=null, analyser=null, audioFreq=null, audioStarted=false;
+    el('audio').onclick = () => {
+        if(!audioStarted) startAudio();
+        else if(audioCtx.state === 'running') { audioCtx.suspend(); el('audio').textContent='Resume Audio'; }
+        else { audioCtx.resume(); el('audio').textContent='Stop Audio'; }
+    };
+    function startAudio(){
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const master = audioCtx.createGain(); master.gain.value = 0.22; master.connect(audioCtx.destination);
+        analyser = audioCtx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.6;
+        master.connect(analyser);
+        audioFreq = new Uint8Array(analyser.frequencyBinCount);
+
+        // Bass drone
+        const drone = audioCtx.createOscillator(); drone.type='sawtooth'; drone.frequency.value=55;
+        const drone2 = audioCtx.createOscillator(); drone2.type='sawtooth'; drone2.frequency.value=55*1.005;
+        const lpf = audioCtx.createBiquadFilter(); lpf.type='lowpass'; lpf.frequency.value=400; lpf.Q.value=4;
+        const lfo = audioCtx.createOscillator(); lfo.frequency.value=0.1;
+        const lfoG = audioCtx.createGain(); lfoG.gain.value=300;
+        lfo.connect(lfoG); lfoG.connect(lpf.frequency);
+        const droneG = audioCtx.createGain(); droneG.gain.value=0.45;
+        drone.connect(droneG); drone2.connect(droneG); droneG.connect(lpf); lpf.connect(master);
+
+        // Kick: sine sweep envelope on schedule
+        function scheduleKick(t){
+            const o = audioCtx.createOscillator(); o.type='sine';
+            const g = audioCtx.createGain();
+            o.frequency.setValueAtTime(160, t);
+            o.frequency.exponentialRampToValueAtTime(40, t+0.18);
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(0.9, t+0.005);
+            g.gain.exponentialRampToValueAtTime(0.0001, t+0.32);
+            o.connect(g); g.connect(master);
+            o.start(t); o.stop(t+0.4);
+        }
+        const bpm = 120, beat = 60.0/bpm;
+        let next = audioCtx.currentTime + 0.1;
+        function tick(){
+            const now = audioCtx.currentTime;
+            while(next < now + 0.5){
+                scheduleKick(next);
+                next += beat;
+            }
+            setTimeout(tick, 100);
+        }
+        drone.start(); drone2.start(); lfo.start();
+        tick();
+
+        audioStarted = true;
+        el('audio').textContent = 'Stop Audio';
+    }
+
+    // FPS
+    const fpsEl = el('fps');
+    let frames=0, fpsT=performance.now();
+
+    const t0 = performance.now();
+    let lastT = t0;
+    function frame(now){
+        const dt = Math.min(0.05, (now - lastT) * 0.001);
+        lastT = now;
+        const t = (now - t0) * 0.001;
+
+        // Audio pulse — read FFT bass bins
+        if(analyser){
+            analyser.getByteFrequencyData(audioFreq);
+            let bass = 0;
+            for(let i=1;i<6;i++) bass += audioFreq[i];
+            bass = bass / (5 * 255);
+            // Smooth toward target with peak detect
+            state.pulse += (bass - state.pulse) * Math.min(1.0, dt * 12);
+        } else {
+            state.pulse *= Math.max(0, 1 - dt * 2);
+        }
+
+        // Travel
+        let speed = state.speed * (1.0 + state.warp * 5.0) * (1.0 + state.pulse * 0.4);
+        state.travel += dt * speed * 4.0;
+
+        // Warp decay
+        state.warp += (state.warpTarget - state.warp) * Math.min(1, dt * 3);
+        state.warpTarget *= Math.max(0, 1 - dt * 0.7);
+
+        // Auto bank look — settle toward zero
+        if(!dragging){
+            state.look[0] *= Math.max(0, 1 - dt * 0.8);
+            state.look[1] *= Math.max(0, 1 - dt * 0.8);
+        }
+
+        gl.uniform2f(uRes, canvas.width, canvas.height);
+        gl.uniform1f(uTime, t);
+        gl.uniform1f(uTravel, state.travel);
+        gl.uniform1f(uTwist, state.twist);
+        gl.uniform1f(uDetail, state.detail);
+        gl.uniform1f(uSym, state.sym);
+        gl.uniform1f(uGlow, state.glow);
+        gl.uniform1i(uPal, state.palette);
+        gl.uniform1f(uWarp, state.warp);
+        gl.uniform1f(uPulse, Math.min(1.0, state.pulse * 1.4));
+        gl.uniform2f(uLook, state.look[0], state.look[1]);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        frames++;
+        if(now - fpsT > 500){
+            fpsEl.textContent = Math.round(frames * 1000/(now - fpsT)) + ' fps';
+            frames = 0; fpsT = now;
+        }
+
+        requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    </script>
+</body>
+</html>

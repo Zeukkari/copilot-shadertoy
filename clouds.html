@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volumetric Clouds - Sky Drift</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            color: #ddd;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #panel {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 240px;
+            padding: 14px 16px;
+            background: rgba(15, 15, 20, 0.55);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            font-size: 12px;
+            z-index: 10;
+            user-select: none;
+        }
+
+        #panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            background: linear-gradient(90deg, #8ec9ff, #fff4c2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .row {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            margin-bottom: 9px;
+        }
+
+        .row label {
+            display: flex;
+            justify-content: space-between;
+            color: #bbb;
+        }
+
+        .row label span {
+            color: #8ec9ff;
+            font-variant-numeric: tabular-nums;
+        }
+
+        input[type=range] {
+            width: 100%;
+            accent-color: #8ec9ff;
+        }
+
+        select, button {
+            width: 100%;
+            padding: 5px 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            color: #eee;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        button:hover, select:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+        }
+
+        .toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        #hint {
+            position: absolute;
+            left: 12px;
+            bottom: 12px;
+            font-size: 11px;
+            color: #888;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 6px 10px;
+            border-radius: 6px;
+            z-index: 10;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="c"></canvas>
+
+    <div id="panel">
+        <h3>☁ SKY DRIFT</h3>
+
+        <div class="row">
+            <label class="toggle">
+                <input type="checkbox" id="autoTime" checked> Auto day/night
+            </label>
+        </div>
+
+        <div class="row">
+            <label>Time of Day <span id="vTime">12:00</span></label>
+            <input type="range" id="time" min="0" max="24" step="0.01" value="10">
+        </div>
+
+        <div class="row">
+            <label>Cloud Coverage <span id="vCov">0.55</span></label>
+            <input type="range" id="cov" min="0" max="1" step="0.01" value="0.55">
+        </div>
+
+        <div class="row">
+            <label>Cloud Density <span id="vDen">0.60</span></label>
+            <input type="range" id="den" min="0" max="1" step="0.01" value="0.60">
+        </div>
+
+        <div class="row">
+            <label>Wind Speed <span id="vWind">0.40</span></label>
+            <input type="range" id="wind" min="0" max="2" step="0.01" value="0.40">
+        </div>
+
+        <div class="row">
+            <label>Altitude <span id="vAlt">mid</span></label>
+            <input type="range" id="alt" min="0" max="2" step="1" value="1">
+        </div>
+
+        <div class="row">
+            <label>Quality <span id="vQ">medium</span></label>
+            <select id="q">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+            </select>
+        </div>
+
+        <div class="btn-row">
+            <button id="audioBtn">Start Audio</button>
+            <button id="resetBtn">Reset</button>
+        </div>
+    </div>
+
+    <div id="hint">Drag to look around</div>
+
+    <!-- Vertex shader: full-screen quad -->
+    <script type="x-shader/x-vertex" id="vs">
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main() {
+    v_uv = a_pos * 0.5 + 0.5;
+    gl_Position = vec4(a_pos, 0.0, 1.0);
+}
+</script>
+
+    <!-- Fragment shader: volumetric clouds + sky -->
+    <script type="x-shader/x-fragment" id="fs">
+precision highp float;
+
+varying vec2 v_uv;
+
+uniform vec2  u_res;
+uniform float u_time;
+uniform float u_timeOfDay;   // 0..24
+uniform float u_coverage;    // 0..1
+uniform float u_density;     // 0..1
+uniform float u_wind;        // 0..2
+uniform float u_camY;        // camera altitude in meters
+uniform vec2  u_look;        // yaw, pitch
+uniform int   u_steps;       // primary march steps
+uniform int   u_lightSteps;  // secondary march steps
+
+// ---------- Noise ----------
+float hash(vec3 p) {
+    p = fract(p * vec3(443.897, 441.423, 437.195));
+    p += dot(p, p.yzx + 19.19);
+    return fract((p.x + p.y) * p.z);
+}
+
+float vnoise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float n000 = hash(i + vec3(0,0,0));
+    float n100 = hash(i + vec3(1,0,0));
+    float n010 = hash(i + vec3(0,1,0));
+    float n110 = hash(i + vec3(1,1,0));
+    float n001 = hash(i + vec3(0,0,1));
+    float n101 = hash(i + vec3(1,0,1));
+    float n011 = hash(i + vec3(0,1,1));
+    float n111 = hash(i + vec3(1,1,1));
+    float nx00 = mix(n000, n100, f.x);
+    float nx10 = mix(n010, n110, f.x);
+    float nx01 = mix(n001, n101, f.x);
+    float nx11 = mix(n011, n111, f.x);
+    float nxy0 = mix(nx00, nx10, f.y);
+    float nxy1 = mix(nx01, nx11, f.y);
+    return mix(nxy0, nxy1, f.z);
+}
+
+float fbm(vec3 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 5; i++) {
+        v += a * vnoise(p);
+        p = p * 2.02 + vec3(17.1, 5.3, 9.7);
+        a *= 0.5;
+    }
+    return v;
+}
+
+// Cheaper 3-octave fbm for detail erosion
+float fbm3(vec3 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 3; i++) {
+        v += a * vnoise(p);
+        p = p * 2.1 + vec3(3.7, 9.3, 1.1);
+        a *= 0.5;
+    }
+    return v;
+}
+
+// ---------- Cloud layer ----------
+const float CLOUD_BASE = 800.0;
+const float CLOUD_TOP  = 2200.0;
+
+// Smooth altitude falloff — anvil-shaped coverage
+float heightFactor(float h) {
+    float n = clamp((h - CLOUD_BASE) / (CLOUD_TOP - CLOUD_BASE), 0.0, 1.0);
+    // Bottom rounded, top flattened
+    float bottom = smoothstep(0.0, 0.15, n);
+    float top    = 1.0 - smoothstep(0.65, 1.0, n);
+    return bottom * top;
+}
+
+float cloudDensity(vec3 p) {
+    float h = p.y;
+    float hf = heightFactor(h);
+    if (hf <= 0.0) return 0.0;
+
+    vec3 wind = vec3(u_time * u_wind * 8.0, 0.0, u_time * u_wind * 3.0);
+
+    // Base shape
+    float base = fbm((p + wind) * 0.0006);
+    // Bias by coverage
+    base = base - (1.0 - u_coverage) * 0.6;
+    base *= hf;
+    if (base <= 0.0) return 0.0;
+
+    // Detail erosion
+    float detail = fbm3((p + wind * 1.3) * 0.004);
+    float d = base - detail * 0.25 * (1.0 - hf * 0.5);
+    return max(d, 0.0) * u_density * 2.2;
+}
+
+// ---------- Sun ----------
+vec3 sunDirFromTime(float t) {
+    // t in 0..24; sun arcs east->up->west
+    float a = (t / 24.0) * 6.2831853 - 1.5707963;
+    // Tilt slightly (latitude)
+    float y = sin(a);
+    float x = cos(a);
+    return normalize(vec3(x, y, 0.15));
+}
+
+// ---------- Sky ----------
+vec3 skyColor(vec3 rd, vec3 sunDir) {
+    float sunH = clamp(sunDir.y, -0.2, 1.0);
+    float day  = smoothstep(-0.05, 0.25, sunH);
+    float dusk = smoothstep(-0.2, 0.15, sunH) * (1.0 - smoothstep(0.05, 0.4, sunH));
+
+    vec3 dayZenith   = vec3(0.30, 0.55, 0.90);
+    vec3 dayHorizon  = vec3(0.75, 0.85, 0.95);
+    vec3 duskZenith  = vec3(0.15, 0.12, 0.35);
+    vec3 duskHorizon = vec3(0.95, 0.45, 0.25);
+    vec3 nightZenith = vec3(0.01, 0.015, 0.04);
+    vec3 nightHorizon= vec3(0.05, 0.06, 0.12);
+
+    float t = clamp(rd.y * 0.5 + 0.5, 0.0, 1.0);
+
+    vec3 dayC   = mix(dayHorizon, dayZenith, t);
+    vec3 duskC  = mix(duskHorizon, duskZenith, t);
+    vec3 nightC = mix(nightHorizon, nightZenith, t);
+
+    vec3 col = mix(nightC, duskC, dusk);
+    col = mix(col, dayC, day);
+
+    // Sun disc
+    float sd = max(dot(rd, sunDir), 0.0);
+    float sunDisc = pow(sd, 900.0);
+    float sunGlow = pow(sd, 8.0) * 0.25;
+    vec3 sunCol = mix(vec3(1.0, 0.6, 0.35), vec3(1.0, 0.95, 0.85), day);
+    col += sunCol * (sunDisc * 20.0 + sunGlow) * smoothstep(-0.1, 0.05, sunDir.y);
+
+    // Moon (opposite sun at night)
+    vec3 moonDir = -sunDir;
+    float md = max(dot(rd, moonDir), 0.0);
+    float moonDisc = pow(md, 1500.0);
+    float night = 1.0 - day;
+    col += vec3(0.8, 0.85, 1.0) * moonDisc * 8.0 * night;
+
+    // Stars (only at night, only above horizon)
+    if (night > 0.1 && rd.y > 0.0) {
+        vec3 sp = rd * 300.0;
+        float s = hash(floor(sp));
+        float twinkle = 0.5 + 0.5 * sin(u_time * 3.0 + s * 50.0);
+        float star = smoothstep(0.997, 1.0, s) * twinkle;
+        col += vec3(star) * night * rd.y;
+    }
+
+    return col;
+}
+
+// ---------- Lighting ----------
+// Henyey-Greenstein phase
+float hg(float mu, float g) {
+    float g2 = g * g;
+    return (1.0 - g2) / (12.5663706 * pow(1.0 + g2 - 2.0 * g * mu, 1.5));
+}
+
+// Short secondary march toward sun
+float lightMarch(vec3 p, vec3 sunDir) {
+    float tau = 0.0;
+    float t = 0.0;
+    float stepLen = 120.0;
+    for (int i = 0; i < 8; i++) {
+        if (i >= u_lightSteps) break;
+        vec3 sp = p + sunDir * (t + stepLen * 0.5);
+        tau += cloudDensity(sp) * stepLen;
+        t += stepLen;
+        stepLen *= 1.5;
+    }
+    return exp(-tau * 0.02);
+}
+
+// ---------- Primary march ----------
+vec4 marchClouds(vec3 ro, vec3 rd, vec3 sunDir, float jitter) {
+    // Find cloud slab intersection
+    float tEnter, tExit;
+    if (abs(rd.y) < 1e-4) {
+        if (ro.y > CLOUD_BASE && ro.y < CLOUD_TOP) {
+            tEnter = 0.0;
+            tExit = 8000.0;
+        } else {
+            return vec4(0.0, 0.0, 0.0, 0.0);
+        }
+    } else {
+        float t1 = (CLOUD_BASE - ro.y) / rd.y;
+        float t2 = (CLOUD_TOP  - ro.y) / rd.y;
+        tEnter = min(t1, t2);
+        tExit  = max(t1, t2);
+        if (tExit < 0.0) return vec4(0.0);
+        tEnter = max(tEnter, 0.0);
+        tExit  = min(tExit, 25000.0);
+    }
+
+    float span = tExit - tEnter;
+    if (span <= 0.0) return vec4(0.0);
+
+    float steps = float(u_steps);
+    float stepLen = span / steps;
+
+    vec3 sumCol = vec3(0.0);
+    float trans = 1.0;
+
+    float mu = dot(rd, sunDir);
+    float phase = mix(hg(mu, 0.25), hg(mu, 0.75), 0.5);
+
+    float t = tEnter + stepLen * jitter;
+
+    for (int i = 0; i < 128; i++) {
+        if (i >= u_steps) break;
+        if (trans < 0.01) break;
+
+        vec3 p = ro + rd * t;
+        float d = cloudDensity(p);
+
+        if (d > 0.001) {
+            float light = lightMarch(p, sunDir);
+
+            // Ambient: sky from above, ground tint from below
+            float h = clamp((p.y - CLOUD_BASE) / (CLOUD_TOP - CLOUD_BASE), 0.0, 1.0);
+            vec3 ambTop    = vec3(0.75, 0.82, 1.0);
+            vec3 ambBottom = vec3(0.35, 0.38, 0.45);
+            vec3 amb = mix(ambBottom, ambTop, h);
+
+            vec3 sunColor = mix(vec3(1.0, 0.55, 0.3),
+                                vec3(1.0, 0.95, 0.85),
+                                smoothstep(0.0, 0.3, sunDir.y));
+            sunColor *= smoothstep(-0.15, 0.1, sunDir.y);
+
+            // Powder term — darkens edges facing light
+            float powder = 1.0 - exp(-d * stepLen * 0.08);
+
+            vec3 scatter = sunColor * light * phase * 6.0 + amb * 0.25;
+            scatter *= powder;
+
+            float absorb = exp(-d * stepLen * 0.03);
+            sumCol += trans * (1.0 - absorb) * scatter;
+            trans  *= absorb;
+        }
+
+        t += stepLen;
+        if (t > tExit) break;
+    }
+
+    return vec4(sumCol, 1.0 - trans);
+}
+
+// ---------- Camera ----------
+mat3 lookMat(vec2 look) {
+    float cy = cos(look.x), sy = sin(look.x);
+    float cp = cos(look.y), sp = sin(look.y);
+    // yaw then pitch
+    mat3 yaw = mat3(cy, 0, -sy, 0, 1, 0, sy, 0, cy);
+    mat3 pitch = mat3(1, 0, 0, 0, cp, sp, 0, -sp, cp);
+    return yaw * pitch;
+}
+
+void main() {
+    vec2 uv = (gl_FragCoord.xy / u_res.xy) * 2.0 - 1.0;
+    uv.x *= u_res.x / u_res.y;
+
+    vec3 ro = vec3(0.0, u_camY, 0.0);
+    vec3 rdLocal = normalize(vec3(uv, 1.5));
+    mat3 cam = lookMat(u_look);
+    vec3 rd = cam * rdLocal;
+
+    vec3 sunDir = sunDirFromTime(u_timeOfDay);
+
+    // Sky
+    vec3 sky = skyColor(rd, sunDir);
+
+    // Jitter for banding reduction
+    float jitter = hash(vec3(gl_FragCoord.xy, u_time));
+
+    // Clouds (only sample if we're looking toward the slab region)
+    vec4 cloud = vec4(0.0);
+    if (rd.y > -0.2) {
+        cloud = marchClouds(ro, rd, sunDir, jitter);
+    }
+
+    // Fog toward horizon for clouds
+    float horizonFade = smoothstep(-0.05, 0.1, rd.y);
+    cloud.a *= horizonFade;
+
+    vec3 col = mix(sky, cloud.rgb / max(cloud.a, 0.001), cloud.a);
+
+    // Tonemap (Reinhard-ish)
+    col = col / (1.0 + col);
+    // Gamma
+    col = pow(col, vec3(1.0 / 2.2));
+
+    // Subtle vignette
+    vec2 q = gl_FragCoord.xy / u_res.xy;
+    float vig = 1.0 - 0.25 * dot(q - 0.5, q - 0.5);
+    col *= vig;
+
+    gl_FragColor = vec4(col, 1.0);
+}
+</script>
+
+    <script>
+        // ---------- WebGL boilerplate ----------
+        const canvas = document.getElementById('c');
+        const gl = canvas.getContext('webgl', { antialias: false, powerPreference: 'high-performance' });
+        if (!gl) {
+            document.body.innerHTML = '<p style="color:#f88;padding:20px">WebGL not supported.</p>';
+            throw new Error('no webgl');
+        }
+
+        function compile(type, src) {
+            const s = gl.createShader(type);
+            gl.shaderSource(s, src);
+            gl.compileShader(s);
+            if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+                console.error(gl.getShaderInfoLog(s));
+                throw new Error('shader compile');
+            }
+            return s;
+        }
+
+        const vs = compile(gl.VERTEX_SHADER,   document.getElementById('vs').text);
+        const fs = compile(gl.FRAGMENT_SHADER, document.getElementById('fs').text);
+        const prog = gl.createProgram();
+        gl.attachShader(prog, vs);
+        gl.attachShader(prog, fs);
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+            console.error(gl.getProgramInfoLog(prog));
+            throw new Error('link');
+        }
+        gl.useProgram(prog);
+
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            -1,-1, 1,-1, -1,1,  -1,1, 1,-1, 1,1
+        ]), gl.STATIC_DRAW);
+        const aPos = gl.getAttribLocation(prog, 'a_pos');
+        gl.enableVertexAttribArray(aPos);
+        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+        const uRes        = gl.getUniformLocation(prog, 'u_res');
+        const uTime       = gl.getUniformLocation(prog, 'u_time');
+        const uTimeOfDay  = gl.getUniformLocation(prog, 'u_timeOfDay');
+        const uCoverage   = gl.getUniformLocation(prog, 'u_coverage');
+        const uDensity    = gl.getUniformLocation(prog, 'u_density');
+        const uWind       = gl.getUniformLocation(prog, 'u_wind');
+        const uCamY       = gl.getUniformLocation(prog, 'u_camY');
+        const uLook       = gl.getUniformLocation(prog, 'u_look');
+        const uSteps      = gl.getUniformLocation(prog, 'u_steps');
+        const uLightSteps = gl.getUniformLocation(prog, 'u_lightSteps');
+
+        // ---------- State ----------
+        const state = {
+            time: 10.0,          // time of day hours
+            autoTime: true,
+            coverage: 0.55,
+            density: 0.60,
+            wind: 0.40,
+            altIdx: 1,           // 0=below, 1=mid, 2=above
+            quality: 'medium',
+            look: [0.0, 0.1],
+            resScale: 0.75,
+            steps: 48,
+            lightSteps: 5,
+        };
+
+        const isMobile = /Mobi|Android/i.test(navigator.userAgent) || window.innerWidth < 700;
+
+        function applyQuality(q) {
+            state.quality = q;
+            if (q === 'low')    { state.steps = 28; state.lightSteps = 3; state.resScale = isMobile ? 0.4 : 0.55; }
+            if (q === 'medium') { state.steps = 48; state.lightSteps = 5; state.resScale = isMobile ? 0.55 : 0.75; }
+            if (q === 'high')   { state.steps = 80; state.lightSteps = 7; state.resScale = isMobile ? 0.7 : 1.0; }
+        }
+        applyQuality(isMobile ? 'low' : 'medium');
+
+        function altitudeMeters(idx) {
+            if (idx === 0) return 400.0;   // below
+            if (idx === 1) return 1500.0;  // mid
+            return 2600.0;                 // above
+        }
+
+        // ---------- UI ----------
+        const el = id => document.getElementById(id);
+        const timeSlider = el('time');
+        const covSlider = el('cov');
+        const denSlider = el('den');
+        const windSlider = el('wind');
+        const altSlider = el('alt');
+        const qSelect = el('q');
+        const autoTimeCb = el('autoTime');
+
+        function fmtTime(h) {
+            const hh = Math.floor(h) % 24;
+            const mm = Math.floor((h - Math.floor(h)) * 60);
+            return String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+        }
+
+        function syncUI() {
+            el('vTime').textContent = fmtTime(state.time);
+            el('vCov').textContent  = state.coverage.toFixed(2);
+            el('vDen').textContent  = state.density.toFixed(2);
+            el('vWind').textContent = state.wind.toFixed(2);
+            el('vAlt').textContent  = ['below','mid','above'][state.altIdx];
+            el('vQ').textContent    = state.quality;
+            timeSlider.value = state.time;
+            covSlider.value  = state.coverage;
+            denSlider.value  = state.density;
+            windSlider.value = state.wind;
+            altSlider.value  = state.altIdx;
+            qSelect.value    = state.quality;
+            autoTimeCb.checked = state.autoTime;
+        }
+
+        timeSlider.oninput = () => { state.time = parseFloat(timeSlider.value); state.autoTime = false; autoTimeCb.checked = false; syncUI(); };
+        covSlider.oninput  = () => { state.coverage = parseFloat(covSlider.value); syncUI(); };
+        denSlider.oninput  = () => { state.density = parseFloat(denSlider.value); syncUI(); };
+        windSlider.oninput = () => { state.wind = parseFloat(windSlider.value); syncUI(); };
+        altSlider.oninput  = () => { state.altIdx = parseInt(altSlider.value); syncUI(); };
+        qSelect.onchange   = () => { applyQuality(qSelect.value); syncUI(); resize(); };
+        autoTimeCb.onchange = () => { state.autoTime = autoTimeCb.checked; };
+
+        el('resetBtn').onclick = () => {
+            state.time = 10.0;
+            state.autoTime = true;
+            state.coverage = 0.55;
+            state.density = 0.60;
+            state.wind = 0.40;
+            state.altIdx = 1;
+            state.look = [0.0, 0.1];
+            applyQuality(isMobile ? 'low' : 'medium');
+            syncUI();
+            resize();
+        };
+
+        // ---------- Mouse/touch look ----------
+        let dragging = false, lastX = 0, lastY = 0;
+        canvas.addEventListener('mousedown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
+        window.addEventListener('mouseup', () => dragging = false);
+        window.addEventListener('mousemove', e => {
+            if (!dragging) return;
+            const dx = e.clientX - lastX, dy = e.clientY - lastY;
+            lastX = e.clientX; lastY = e.clientY;
+            state.look[0] -= dx * 0.003;
+            state.look[1] = Math.max(-1.3, Math.min(1.3, state.look[1] + dy * 0.003));
+        });
+        canvas.addEventListener('touchstart', e => {
+            if (e.touches.length === 1) {
+                dragging = true;
+                lastX = e.touches[0].clientX;
+                lastY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+        canvas.addEventListener('touchmove', e => {
+            if (!dragging || e.touches.length !== 1) return;
+            const dx = e.touches[0].clientX - lastX, dy = e.touches[0].clientY - lastY;
+            lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+            state.look[0] -= dx * 0.003;
+            state.look[1] = Math.max(-1.3, Math.min(1.3, state.look[1] + dy * 0.003));
+        }, { passive: true });
+        canvas.addEventListener('touchend', () => dragging = false);
+
+        // ---------- Resize ----------
+        function resize() {
+            const w = Math.max(1, Math.floor(window.innerWidth  * state.resScale));
+            const h = Math.max(1, Math.floor(window.innerHeight * state.resScale));
+            if (canvas.width !== w || canvas.height !== h) {
+                canvas.width = w;
+                canvas.height = h;
+                gl.viewport(0, 0, w, h);
+            }
+        }
+        window.addEventListener('resize', resize);
+
+        // ---------- Ambient audio ----------
+        let audioCtx = null, audioStarted = false, audioNodes = null;
+
+        function startAudio() {
+            if (audioStarted) {
+                audioCtx.resume();
+                return;
+            }
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const master = audioCtx.createGain();
+            master.gain.value = 0.18;
+            master.connect(audioCtx.destination);
+
+            // Pad: 3 detuned saws -> lowpass -> master
+            const padGain = audioCtx.createGain();
+            padGain.gain.value = 0.6;
+            const lpf = audioCtx.createBiquadFilter();
+            lpf.type = 'lowpass';
+            lpf.frequency.value = 600;
+            lpf.Q.value = 2;
+
+            const baseFreq = 110; // A2
+            const osc1 = audioCtx.createOscillator(); osc1.type = 'sawtooth'; osc1.frequency.value = baseFreq;
+            const osc2 = audioCtx.createOscillator(); osc2.type = 'sawtooth'; osc2.frequency.value = baseFreq * 1.005;
+            const osc3 = audioCtx.createOscillator(); osc3.type = 'sawtooth'; osc3.frequency.value = baseFreq * 0.75 * 1.003; // perfect fifth down
+            osc1.connect(padGain); osc2.connect(padGain); osc3.connect(padGain);
+            padGain.connect(lpf);
+            lpf.connect(master);
+
+            // Filter LFO
+            const lfo = audioCtx.createOscillator(); lfo.frequency.value = 0.07;
+            const lfoGain = audioCtx.createGain(); lfoGain.gain.value = 400;
+            lfo.connect(lfoGain); lfoGain.connect(lpf.frequency);
+
+            // Wind noise
+            const bufSize = 2 * audioCtx.sampleRate;
+            const noiseBuf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+            const nd = noiseBuf.getChannelData(0);
+            for (let i = 0; i < bufSize; i++) nd[i] = Math.random() * 2 - 1;
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = noiseBuf; noise.loop = true;
+            const bpf = audioCtx.createBiquadFilter();
+            bpf.type = 'bandpass'; bpf.frequency.value = 700; bpf.Q.value = 0.8;
+            const noiseGain = audioCtx.createGain(); noiseGain.gain.value = 0.05;
+            noise.connect(bpf); bpf.connect(noiseGain); noiseGain.connect(master);
+
+            osc1.start(); osc2.start(); osc3.start(); lfo.start(); noise.start();
+
+            audioNodes = { master, lpf, padGain, osc1, osc2, osc3, noiseGain, bpf };
+            audioStarted = true;
+        }
+
+        el('audioBtn').onclick = () => {
+            if (!audioStarted) {
+                startAudio();
+                el('audioBtn').textContent = 'Stop Audio';
+            } else {
+                if (audioCtx.state === 'running') {
+                    audioCtx.suspend();
+                    el('audioBtn').textContent = 'Resume Audio';
+                } else {
+                    audioCtx.resume();
+                    el('audioBtn').textContent = 'Stop Audio';
+                }
+            }
+        };
+
+        function updateAudioFromSun(sunY) {
+            if (!audioStarted || !audioNodes) return;
+            // Brighter/more open by day, darker/quieter at night
+            const day = Math.max(0, Math.min(1, (sunY + 0.1) / 0.9));
+            audioNodes.lpf.frequency.setTargetAtTime(350 + day * 900, audioCtx.currentTime, 0.5);
+            audioNodes.master.gain.setTargetAtTime(0.12 + day * 0.1, audioCtx.currentTime, 0.5);
+            audioNodes.bpf.frequency.setTargetAtTime(400 + state.wind * 600, audioCtx.currentTime, 0.5);
+            audioNodes.noiseGain.gain.setTargetAtTime(0.02 + state.wind * 0.05, audioCtx.currentTime, 0.5);
+        }
+
+        // ---------- Main loop ----------
+        resize();
+        syncUI();
+        const t0 = performance.now();
+        let lastT = t0;
+
+        function frame(now) {
+            const t = (now - t0) * 0.001;
+            const dt = (now - lastT) * 0.001;
+            lastT = now;
+
+            if (state.autoTime) {
+                state.time = (state.time + dt * 0.25) % 24; // full day in ~96s
+                el('vTime').textContent = fmtTime(state.time);
+                timeSlider.value = state.time;
+            }
+
+            const camY = altitudeMeters(state.altIdx);
+
+            // Sun.y for audio mapping
+            const a = (state.time / 24.0) * 2 * Math.PI - Math.PI / 2;
+            const sunY = Math.sin(a);
+            updateAudioFromSun(sunY);
+
+            gl.uniform2f(uRes, canvas.width, canvas.height);
+            gl.uniform1f(uTime, t);
+            gl.uniform1f(uTimeOfDay, state.time);
+            gl.uniform1f(uCoverage, state.coverage);
+            gl.uniform1f(uDensity, state.density);
+            gl.uniform1f(uWind, state.wind);
+            gl.uniform1f(uCamY, camY);
+            gl.uniform2f(uLook, state.look[0], state.look[1]);
+            gl.uniform1i(uSteps, state.steps);
+            gl.uniform1i(uLightSteps, state.lightSteps);
+
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+    </script>
+</body>
+
+</html>
