@@ -3110,22 +3110,24 @@ void main() {
     }
 
     // ---------- Drum machine (ported from wtf.html, routed to audio.master) ----------
-    function createKick(time) {
+    function createKick(time, vel) {
         const c = audio.ctx;
+        const v = (vel !== undefined) ? vel : 1.0;
         const osc = c.createOscillator();
         const g = c.createGain();
         osc.type = "sine";
         osc.frequency.setValueAtTime(60, time);
         osc.frequency.exponentialRampToValueAtTime(30, time + 0.1);
-        g.gain.setValueAtTime(0.6, time);
+        g.gain.setValueAtTime(0.6 * v, time);
         g.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
         osc.connect(g);
         g.connect(audio.master);
         osc.start(time);
         osc.stop(time + 0.2);
     }
-    function createSnare(time) {
+    function createSnare(time, vel) {
         const c = audio.ctx;
+        const v = (vel !== undefined) ? vel : 1.0;
         const noise = c.createBufferSource();
         const buf = c.createBuffer(1, c.sampleRate * 0.2, c.sampleRate);
         const out = buf.getChannelData(0);
@@ -3134,13 +3136,13 @@ void main() {
         const hp = c.createBiquadFilter();
         hp.type = "highpass"; hp.frequency.value = 1000;
         const g = c.createGain();
-        g.gain.setValueAtTime(0.32, time);
+        g.gain.setValueAtTime(0.32 * v, time);
         g.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
         noise.connect(hp); hp.connect(g); g.connect(audio.master);
         const osc = c.createOscillator();
         const og = c.createGain();
         osc.type = "triangle"; osc.frequency.value = 200;
-        og.gain.setValueAtTime(0.1, time);
+        og.gain.setValueAtTime(0.1 * v, time);
         og.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
         osc.connect(og); og.connect(audio.master);
         noise.start(time); noise.stop(time + 0.2);
@@ -3172,75 +3174,194 @@ void main() {
         osc.connect(g); g.connect(audio.master);
         osc.start(time); osc.stop(time + 0.3);
     }
+    // Layered hand-clap: 3 short noise bursts spaced ~12ms apart for body.
+    function createClap(time) {
+        const c = audio.ctx;
+        const offsets = [0, 0.011, 0.024];
+        offsets.forEach((off, i) => {
+            const noise = c.createBufferSource();
+            const buf = c.createBuffer(1, c.sampleRate * 0.08, c.sampleRate);
+            const out = buf.getChannelData(0);
+            for (let j = 0; j < out.length; j++) out[j] = Math.random() * 2 - 1;
+            noise.buffer = buf;
+            const bp = c.createBiquadFilter();
+            bp.type = "bandpass"; bp.frequency.value = 1500; bp.Q.value = 1.4;
+            const g = c.createGain();
+            const t = time + off;
+            const amp = i === offsets.length - 1 ? 0.18 : 0.10; // last burst loudest (sustain)
+            g.gain.setValueAtTime(amp, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + (i === offsets.length - 1 ? 0.18 : 0.04));
+            noise.connect(bp); bp.connect(g); g.connect(audio.master);
+            noise.start(t); noise.stop(t + 0.2);
+        });
+    }
+    // Open hi-hat: same square stack as closed but with a longer decay envelope.
+    function createOpenHat(time) {
+        const c = audio.ctx;
+        const ratios = [2, 3, 4.16, 5.43, 6.79, 8.21];
+        ratios.forEach((ratio, i) => {
+            const osc = c.createOscillator();
+            osc.type = "square";
+            osc.frequency.value = 200 * ratio;
+            const bp = c.createBiquadFilter();
+            bp.type = "bandpass"; bp.frequency.value = 9000; bp.Q.value = 0.6;
+            const env = c.createGain();
+            env.gain.setValueAtTime(0.06 / (i + 1), time);
+            env.gain.exponentialRampToValueAtTime(0.005, time + 0.22);
+            osc.connect(bp); bp.connect(env); env.connect(audio.master);
+            osc.start(time); osc.stop(time + 0.22);
+        });
+    }
+    // Tom (low-mid pitched drum) — falling pitch sine, useful for fills.
+    function createTom(time, freq) {
+        const c = audio.ctx;
+        const osc = c.createOscillator();
+        const g = c.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq || 140, time);
+        osc.frequency.exponentialRampToValueAtTime((freq || 140) * 0.5, time + 0.18);
+        g.gain.setValueAtTime(0.32, time);
+        g.gain.exponentialRampToValueAtTime(0.01, time + 0.22);
+        osc.connect(g); g.connect(audio.master);
+        osc.start(time); osc.stop(time + 0.22);
+    }
     function scheduleDrumPattern() {
         if (!audio.ctx || !audio.drumsActive) return;
         const startTime = audio.ctx.currentTime;
-        const bpm = 90;
+        const bpm = 92;
         const beatDuration = 60 / bpm;
 
+        // ── Pattern bank ─────────────────────────────────────────────────────
+        // Each entry covers an 8-beat (2-bar) phrase. Step grid is 16ths
+        // (0, 0.25, 0.5, 0.75, 1.0, …, 7.75). Hi-hats include 'oh' (open hat)
+        // for accents and 'cl' (clap) layered with snare on the 2 and 4.
+        // Bass notes use scale degrees (Hz) that imply A minor.
+
+        // Sparse intro: just the pulse + a few hats
         const patternIntro = [
-            { time: 0, kick: 1, hihat: 1, bass: 55 },
-            { time: 1.0, hihat: 1 },
-            { time: 2.0, hihat: 1 },
-            { time: 3.0, hihat: 1, bass: 55 },
-            { time: 4.0, kick: 1, hihat: 1 },
-            { time: 5.0, hihat: 1 },
-            { time: 6.0, hihat: 1 },
-            { time: 7.0, hihat: 1, bass: 55 },
+            { time: 0,    kick: 1,             bass: 55 },
+            { time: 1,    hihat: 1 },
+            { time: 2,    hihat: 1 },
+            { time: 3,    hihat: 1 },
+            { time: 4,    kick: 1 },
+            { time: 5,    hihat: 1 },
+            { time: 6,    hihat: 1 },
+            { time: 7,    oh: 1 },                       // open hat lift before the verse
         ];
+        // Standard 4-on-floor with snare backbeat + clap layer + 16th hats
         const patternMain = [
-            { time: 0,   kick: 1, hihat: 1, bass: 55 },
-            { time: 0.5, hihat: 1 },
-            { time: 1.0, hihat: 1 },
-            { time: 1.5, hihat: 1 },
-            { time: 2.0, snare: 1, hihat: 1 },
-            { time: 2.5, hihat: 1 },
-            { time: 3.0, kick: 1, hihat: 1, bass: 55 },
-            { time: 3.5, hihat: 1 },
-            { time: 4.0, kick: 1, hihat: 1 },
-            { time: 4.5, hihat: 1 },
-            { time: 5.0, hihat: 1, bass: 60 },
-            { time: 5.5, hihat: 1 },
-            { time: 6.0, snare: 1, hihat: 1 },
-            { time: 6.5, hihat: 1 },
-            { time: 7.0, kick: 1, hihat: 1, bass: 55 },
-            { time: 7.5, hihat: 1 },
-        ];
-        const patternHype = [
             { time: 0,    kick: 1, hihat: 1, bass: 55 },
             { time: 0.5,  hihat: 1 },
-            { time: 0.75, hihat: 1 },
-            { time: 1.0,  kick: 1, hihat: 1 },
+            { time: 1,    hihat: 1 },
             { time: 1.5,  hihat: 1 },
-            { time: 2.0,  snare: 1, hihat: 1 },
+            { time: 2,    snare: 1, clap: 1, hihat: 1 },
+            { time: 2.5,  hihat: 1 },
+            { time: 2.75, kick: 0.5 },                   // ghost kick
+            { time: 3,    kick: 1, hihat: 1, bass: 55 },
+            { time: 3.5,  hihat: 1 },
+            { time: 3.75, hihat: 1 },                    // 16th lead-in
+            { time: 4,    kick: 1, hihat: 1, bass: 60 },
+            { time: 4.5,  hihat: 1 },
+            { time: 5,    hihat: 1 },
+            { time: 5.5,  oh: 1 },
+            { time: 6,    snare: 1, clap: 1, hihat: 1 },
+            { time: 6.5,  hihat: 1 },
+            { time: 7,    kick: 1, hihat: 1, bass: 73 },
+            { time: 7.5,  kick: 0.6 },                   // syncopated push to bar 1
+        ];
+        // Syncopated half-time variant: kick on the &-of-3, snare on 3, holes
+        // for the model to settle into.
+        const patternSync = [
+            { time: 0,    kick: 1, hihat: 1, bass: 55 },
+            { time: 0.75, hihat: 1 },
+            { time: 1.5,  oh: 1 },
+            { time: 2.5,  snare: 1, clap: 1 },
+            { time: 2.75, kick: 0.7 },                   // & of 3 push
+            { time: 3.5,  hihat: 1, bass: 65 },
+            { time: 4,    kick: 1, hihat: 1 },
+            { time: 4.5,  hihat: 1 },
+            { time: 5.25, hihat: 1 },
+            { time: 6,    snare: 1, hihat: 1 },
+            { time: 6.5,  kick: 1, bass: 55 },
+            { time: 7,    hihat: 1 },
+            { time: 7.5,  oh: 1 },
+        ];
+        // Hype: faster kicks, double-time hats, more bass movement
+        const patternHype = [
+            { time: 0,    kick: 1, hihat: 1, bass: 55 },
+            { time: 0.25, hihat: 1 },
+            { time: 0.5,  hihat: 1 },
+            { time: 0.75, kick: 0.7, hihat: 1 },
+            { time: 1,    kick: 1, hihat: 1 },
+            { time: 1.5,  hihat: 1 },
+            { time: 2,    snare: 1, clap: 1, hihat: 1 },
             { time: 2.5,  hihat: 1 },
             { time: 2.75, hihat: 1 },
-            { time: 3.0,  kick: 1, hihat: 1, bass: 55 },
+            { time: 3,    kick: 1, hihat: 1, bass: 60 },
             { time: 3.5,  hihat: 1 },
-            { time: 4.0,  kick: 1, hihat: 1 },
+            { time: 4,    kick: 1, hihat: 1 },
+            { time: 4.25, kick: 0.8 },                   // double kick
             { time: 4.5,  hihat: 1 },
-            { time: 5.0,  kick: 1, hihat: 1, bass: 62 },
-            { time: 5.25, kick: 1, hihat: 1 },
-            { time: 5.5,  hihat: 1 },
-            { time: 6.0,  snare: 1, hihat: 1 },
+            { time: 5,    kick: 1, hihat: 1, bass: 65 },
+            { time: 5.25, kick: 0.7 },
+            { time: 5.5,  oh: 1 },
+            { time: 6,    snare: 1, clap: 1, hihat: 1 },
             { time: 6.5,  hihat: 1 },
-            { time: 7.0,  kick: 1, hihat: 1, bass: 55 },
-            { time: 7.5,  hihat: 1 },
+            { time: 6.75, snare: 0.6 },                  // snare ghost
+            { time: 7,    kick: 1, hihat: 1, bass: 73 },
+            { time: 7.5,  kick: 0.7 },
+            { time: 7.75, hihat: 1 },
+        ];
+        // Drop: huge kick on 1, then near-silence — gives the model a chance to
+        // settle solid before the next phrase.
+        const patternDrop = [
+            { time: 0, kick: 1.0, bass: 41 },            // sub-bass low note
+            { time: 4, oh: 1 },                          // single open hat tease
+            { time: 7.5, hihat: 1 },                     // pickup back into the loop
+        ];
+        // Fill: tom roll on the last bar, builds tension
+        const patternFill = [
+            { time: 0,    kick: 1, hihat: 1, bass: 55 },
+            { time: 1,    hihat: 1 },
+            { time: 2,    snare: 1, clap: 1 },
+            { time: 3,    hihat: 1 },
+            { time: 4,    kick: 1, bass: 60 },
+            { time: 5,    tom: 180 },
+            { time: 5.5,  tom: 160 },
+            { time: 6,    tom: 140 },
+            { time: 6.5,  tom: 120 },
+            { time: 7,    snare: 1 },
+            { time: 7.25, snare: 1 },
+            { time: 7.5,  snare: 1 },
+            { time: 7.75, snare: 1 },                    // snare flam into next phrase
         ];
 
+        // ── Section selector ─────────────────────────────────────────────────
+        // 16-bar arrangement (each "bar" here is 2 musical bars / 8 beats):
+        //   0-1: intro,  2-5: main,  6: fill,  7: drop,
+        //   8: main,  9-11: hype,  12: sync,  13: hype,  14: fill,  15: drop
         let pattern;
-        const section = audio.drumLoopCount % 10;
-        if (section < 2) pattern = patternIntro;
-        else if (section < 6) pattern = patternMain;
-        else if (section < 8) pattern = patternHype;
-        else pattern = patternIntro;
+        const section = audio.drumLoopCount % 16;
+        if (section < 2)        pattern = patternIntro;
+        else if (section < 6)   pattern = patternMain;
+        else if (section === 6) pattern = patternFill;
+        else if (section === 7) pattern = patternDrop;
+        else if (section === 8) pattern = patternMain;
+        else if (section < 12)  pattern = patternHype;
+        else if (section === 12)pattern = patternSync;
+        else if (section === 13)pattern = patternHype;
+        else if (section === 14)pattern = patternFill;
+        else                    pattern = patternDrop;
 
         pattern.forEach(b => {
             const t = startTime + b.time * beatDuration;
-            if (b.kick) createKick(t);
-            if (b.snare) createSnare(t);
+            if (b.kick)  createKick(t,  typeof b.kick  === 'number' ? b.kick  : 1);
+            if (b.snare) createSnare(t, typeof b.snare === 'number' ? b.snare : 1);
             if (b.hihat) createHiHat(t);
-            if (b.bass) createBass(t, b.bass);
+            if (b.oh)    createOpenHat(t);
+            if (b.clap)  createClap(t);
+            if (b.tom)   createTom(t, b.tom);
+            if (b.bass)  createBass(t, b.bass);
         });
         audio.drumLoopCount++;
         const totalMs = 8 * beatDuration * 1000 - 50;
@@ -3560,18 +3681,25 @@ void main() {
         }
 
         // ---- Foreground (model) reactivity ----
-        // Explosion: stay within the slider's natural [0, 0.07] range.
-        // Shape: small idle floor + bass-driven swell + sharp beat spikes.
-        // Most of the energy comes from beatFlash so kicks feel punchy without
-        // sending shards across the universe.
-        const EX_MAX = 0.07;
-        const idle   = 0.10;                         // 10% of max as idle floor
-        const swell  = Math.min(0.50, audio.bass * 0.9);   // bass adds up to 50%
-        const punch  = Math.min(0.60, audio.beatFlash * 0.9); // kicks add up to 60%
-        params.explodeAmt = EX_MAX * Math.min(1.0, idle + swell + punch);
+        // Goal: model stays SOLID between phrases, only fragments on actual kicks
+        // and sustained low-end. Most quiet moments should leave it intact.
+        //
+        //   bassImpulse: bass *above* its slow ambient floor (so steady-state hum → 0)
+        //   kickPunch:   beatFlash with a steep curve (pow 2.5) so the long decay
+        //                tail dies fast and only the actual hit drives displacement
+        const EX_MAX     = 0.07;
+        const bassFloor  = audio.bassEnv;                          // slow ambient bass
+        const bassImpulse = Math.max(0, audio.bass - bassFloor * 1.05); // 0 most of the time
+        const kickPunch  = Math.pow(audio.beatFlash, 2.5);         // 0.5→0.18, 0.3→0.05
+        // Threshold: needs at least one of these above a noise floor to budge.
+        const drive = bassImpulse * 1.4 + kickPunch * 0.85;
+        const gated = drive < 0.06 ? 0 : drive - 0.06;             // dead zone
+        params.explodeAmt = EX_MAX * Math.min(1.0, gated * 1.6);
 
-        // Shard spin: gentler, mid-driven, with kick spike. Slider's range is [0,3].
-        params.shardSpin = Math.min(2.4, audio.mid * 1.6 + audio.beatFlash * 0.7);
+        // Shard spin: also gated. Steady mid energy used to be enough to spin
+        // shards constantly — now require either a kick or above-baseline mid.
+        const midImpulse = Math.max(0, audio.mid - 0.35);          // mid above floor
+        params.shardSpin = Math.min(2.4, midImpulse * 2.4 + kickPunch * 1.4);
 
         // Displacement speed (model surface noise) — modest mid modulation.
         if (baseParams.dispSpeed !== undefined) {
@@ -3592,14 +3720,14 @@ void main() {
         }
 
         // Background brightness: dim baseline (~0.55) with a punchy beat-flash spike.
-        // This pulls visual attention back to the foreground while still letting the
-        // bg breathe with the music.
+        // Use the squared kickPunch (defined above) so the decay tail dies fast.
+        // Subtle bass swell on top.
         if (baseFractalColorIntensity === null) {
             baseFractalColorIntensity = fractalBase.colorIntensity;
         }
-        const dimmed = baseFractalColorIntensity * 0.55;
-        const flashAdd = baseFractalColorIntensity * 0.55 * audio.beatFlash;
-        const bassAdd  = baseFractalColorIntensity * 0.20 * audio.bass;
+        const dimmed   = baseFractalColorIntensity * 0.55;
+        const flashAdd = baseFractalColorIntensity * 0.55 * kickPunch;
+        const bassAdd  = baseFractalColorIntensity * 0.18 * bassImpulse;
         fractalBase.colorIntensity = dimmed + flashAdd + bassAdd;
     }
 
@@ -3614,14 +3742,15 @@ void main() {
         computeAudioFeatures();
         applyAudioToParams();
 
-        // Beat-driven FOV pump: kick widens FOV briefly (zoom-out feel)
+        // Beat-driven FOV pump: kick widens FOV briefly (zoom-out feel).
+        // Use a steep curve (pow 2.5) so only real hits pump — quiet decay tail
+        // shouldn't keep the camera mid-pump.
         {
             const fovBase   = Math.PI / 4;
             const audioOn   = (audio.drumsActive || audio.micActive);
             const pumpAmt   = (params.fovPumpAmt !== undefined) ? params.fovPumpAmt : 0.18;
-            const drive     = audioOn ? audio.beatFlash : 0;
-            // Squared so the pump feels punchier (concentrated near the kick)
-            currentFov = fovBase + drive * drive * pumpAmt;
+            const drive     = audioOn ? Math.pow(audio.beatFlash, 2.5) : 0;
+            currentFov = fovBase + drive * pumpAmt;
         }
 
         // Auto-rotate camera azimuth when enabled and not dragging
