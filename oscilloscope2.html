@@ -446,7 +446,7 @@ void main(){
     }
 
     function buildWaveform(){
-        // Waveform plotted as a horizontal trace, but warped into a wavy lemniscate shape
+        // Waveform: full-width horizontal trace. Amplified for visual prominence.
         const data = waveTex.data;
         const N = timeData ? timeData.length : 0;
         const sens = state.sensitivity;
@@ -455,11 +455,13 @@ void main(){
             const t = i / (N_WAVE - 1);
             const idx = N > 0 ? Math.min(N-1, Math.floor(t * N)) : 0;
             const s = N > 0 ? timeData[idx] * sens : 0;
-            // Map to screen
-            const x = (t - 0.5) * 1.6;
-            const y = s * 0.55;
-            const hue = (baseHue + s * 0.3) % 1;
-            const intensity = Math.min(1, Math.abs(s) * 2.5 + 0.15);
+            // Map to screen — use most of the canvas width and ~85% of height
+            const x = (t - 0.5) * 1.9;
+            const y = s * 0.90;
+            // Hue shifts strongly with sample sign so positive/negative lobes color differently
+            const hue = (baseHue + s * 0.5 + 1) % 1;
+            // Boosted intensity: floor 0.45, multiplier 4× the abs amplitude
+            const intensity = Math.min(1, Math.abs(s) * 4.0 + 0.45);
 
             data[i*4+0] = ((Math.max(-1, Math.min(1, x)) * 0.5 + 0.5) * 255) | 0;
             data[i*4+1] = ((Math.max(-1, Math.min(1, y)) * 0.5 + 0.5) * 255) | 0;
@@ -467,6 +469,16 @@ void main(){
             data[i*4+3] = (intensity * 255) | 0;
         }
         uploadDataTex(waveTex);
+    }
+
+    // Draw the waveform with extra emphasis: a thick glowing line on top of soft halo points
+    function drawWaveformEmphasized(){
+        // Halo pass: large soft points behind the line for bloom body
+        drawPoints(pPoint, idxWave, waveTex.tex, N_WAVE, 22.0);
+        // Bright sharp line on top
+        drawLineStrip(pLine, idxWave, waveTex.tex, N_WAVE);
+        // Second pass: smaller bright points highlighting peaks
+        drawPoints(pPoint, idxWave, waveTex.tex, N_WAVE, 8.0);
     }
 
     function buildTendrils(time){
@@ -599,26 +611,26 @@ void main(){
         bindFBO(accumB);
 
         if(state.mode === 0){
-            // Spectral Bloom: ring of points (spectrum) + thin waveform line through middle
+            // Spectral Bloom: ring of points (spectrum) backdrop + bold waveform centerpiece
             buildSpectrumRing();
-            drawPoints(pPoint, idxSpec, specTex.tex, N_SPEC, 18.0);
-            // also draw as line-loop for connected feel
+            drawPoints(pPoint, idxSpec, specTex.tex, N_SPEC, 14.0);
             drawLineLoop(pLine, idxSpec, specTex.tex, N_SPEC);
 
-            buildWaveform();
-            drawLineStrip(pLine, idxWave, waveTex.tex, N_WAVE);
-
-            // Kick shockwave
+            // Kick shockwave (drawn before waveform so wave stays on top)
             if(state.kickIntensity > 0.01){
                 buildKickRing();
                 drawPoints(pPoint, idxPart, partTex.tex, N_PARTS, 8.0);
             }
+
+            // Waveform last, with emphasis
+            buildWaveform();
+            drawWaveformEmphasized();
         }
         else if(state.mode === 1){
-            // Frequency Aurora: dense radial points, no waveform
+            // Frequency Aurora: radial tendrils + ring outline + waveform on top
             buildTendrils(t);
-            drawPoints(pPoint, idxPart, partTex.tex, N_PARTS, 14.0);
-            // ring outline
+            drawPoints(pPoint, idxPart, partTex.tex, N_PARTS, 12.0);
+
             buildSpectrumRing();
             drawLineLoop(pLine, idxSpec, specTex.tex, N_SPEC);
 
@@ -626,19 +638,24 @@ void main(){
                 buildKickRing();
                 drawPoints(pPoint, idxPart, partTex.tex, N_PARTS, 6.0);
             }
+
+            // Waveform overlaid for emphasis
+            buildWaveform();
+            drawWaveformEmphasized();
         }
         else {
-            // Tendril Storm: tendrils + waveform + kicks
+            // Tendril Storm: tendrils + bold waveform + kicks
             buildTendrils(t);
-            drawPoints(pPoint, idxPart, partTex.tex, N_PARTS, 16.0);
-
-            buildWaveform();
-            drawLineStrip(pLine, idxWave, waveTex.tex, N_WAVE);
+            drawPoints(pPoint, idxPart, partTex.tex, N_PARTS, 14.0);
 
             if(state.kickIntensity > 0.01){
                 buildKickRing();
                 drawPoints(pPoint, idxPart, partTex.tex, N_PARTS, 10.0);
             }
+
+            // Waveform last and emphasized
+            buildWaveform();
+            drawWaveformEmphasized();
         }
 
         gl.disable(gl.BLEND);
