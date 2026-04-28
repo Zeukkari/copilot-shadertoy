@@ -149,7 +149,7 @@
 </head>
 
 <body>
-    <p>Eldritch Rift II — embedded GLB over the void</p>
+    <p>Combined — exploding shards + drum machine + sonic bloom HUD</p>
     <div id="status">Unpacking embedded model…</div>
     <canvas>WebGL required</canvas>
     <p style="font-size:12px;color:#5a7068;margin:6px 0 0 12px;max-width:52rem;line-height:1.4;">Pointer: multifractal pan / zoom / Julia drift + layer rotations; camera orbit around model; void hue, glow, burst; wheel — distance; click — color-speed flash.</p>
@@ -1613,18 +1613,22 @@ void main() {
             explodeAmt = 0.07 * (1.0 - easeInBounce(mu));
         }
 
-        params.explodeAmt = explodeAmt;
+        // Skip explodeAmt/shardSpin overwrites when audio is driving them.
+        const audioOverrides = (typeof audio !== 'undefined') && (audio.drumsActive || audio.micActive);
 
-        const el = document.getElementById("explodeAmt");
-        const disp = document.getElementById("explodeAmtValue");
-        if (el) { el.value = explodeAmt; if (disp) disp.textContent = explodeAmt.toFixed(3); }
+        if (!audioOverrides) {
+            params.explodeAmt = explodeAmt;
+            const el = document.getElementById("explodeAmt");
+            const disp = document.getElementById("explodeAmtValue");
+            if (el) { el.value = explodeAmt; if (disp) disp.textContent = explodeAmt.toFixed(3); }
 
-        // Animate shard spin: slow sinusoidal sweep 0 → 2.4 → 0 (~35 s period)
-        const spin = 1.2 + 1.2 * Math.sin(nowSec * 0.18);
-        params.shardSpin = spin;
-        const spinEl = document.getElementById("shardSpin");
-        const spinDisp = document.getElementById("shardSpinValue");
-        if (spinEl) { spinEl.value = spin; if (spinDisp) spinDisp.textContent = spin.toFixed(2); }
+            // Animate shard spin: slow sinusoidal sweep 0 → 2.4 → 0 (~35 s period)
+            const spin = 1.2 + 1.2 * Math.sin(nowSec * 0.18);
+            params.shardSpin = spin;
+            const spinEl = document.getElementById("shardSpin");
+            const spinDisp = document.getElementById("shardSpinValue");
+            if (spinEl) { spinEl.value = spin; if (spinDisp) spinDisp.textContent = spin.toFixed(2); }
+        }
     }
 
     let animEnabled = true;
@@ -2775,29 +2779,49 @@ void main() {
     }
 
     // ---------- Audio reactivity into 3D params ----------
-    // We mutate `params` each frame *before* the render loop reads them,
-    // saving original slider-controlled values so they're restored when audio stops.
+    // We mutate `params` each frame *while audio is active*, snapshotting
+    // slider/animation baselines on activation and restoring on deactivation.
     const baseParams = {};
+    const AUDIO_DRIVEN_KEYS = ['dispSpeed','fractalSpeed','planeFractalSpeed','skyboxFractalSpeed'];
+    let audioWasActive = false;
+
+    function snapshotBaseline() {
+        for (const k of AUDIO_DRIVEN_KEYS) {
+            if (params[k] !== undefined) baseParams[k] = params[k];
+        }
+    }
+    function restoreBaseline() {
+        for (const k of AUDIO_DRIVEN_KEYS) {
+            if (baseParams[k] !== undefined) params[k] = baseParams[k];
+        }
+    }
+
     function applyAudioToParams() {
         const active = audio.drumsActive || audio.micActive;
+        if (active && !audioWasActive) snapshotBaseline();
+        if (!active && audioWasActive) restoreBaseline();
+        audioWasActive = active;
         if (!active) return;
-        // Map bass -> burst/explode add (capped). Beat flash gives sharp spikes.
-        const burst = Math.min(0.6, audio.bass * 1.0 + audio.beatFlash * 0.5);
-        params.explodeAmt = Math.min(1.0, (params.explodeAmt || 0) * 0.6 + burst);
-        // Mid -> shard spin
-        params.shardSpin = (params.shardSpin || 0) + audio.mid * 1.2;
-        // High -> displacement speed and fractal speed
-        if (params.dispSpeed !== undefined) {
-            params.dispSpeed = (params.dispSpeed || 0.6) * 0.5 + 0.3 + audio.high * 1.5;
+
+        // Bass + beat flash -> explodeAmt (direct map, not accumulation)
+        const burst = Math.min(0.9, audio.bass * 1.2 + audio.beatFlash * 0.6);
+        params.explodeAmt = burst;
+
+        // Mid -> shard spin (direct map)
+        params.shardSpin = audio.mid * 2.5 + audio.beatFlash * 0.8;
+
+        // High/mid -> fractal animation speeds (baseline + audio modulation)
+        if (baseParams.dispSpeed !== undefined) {
+            params.dispSpeed = baseParams.dispSpeed + audio.high * 1.5;
         }
-        if (params.fractalSpeed !== undefined) {
-            params.fractalSpeed = (params.fractalSpeed || 0.7) * 0.5 + 0.3 + audio.high * 2.0;
+        if (baseParams.fractalSpeed !== undefined) {
+            params.fractalSpeed = baseParams.fractalSpeed + audio.high * 2.0;
         }
-        if (params.planeFractalSpeed !== undefined) {
-            params.planeFractalSpeed = (params.planeFractalSpeed || 0.6) * 0.5 + 0.3 + audio.mid * 1.5;
+        if (baseParams.planeFractalSpeed !== undefined) {
+            params.planeFractalSpeed = baseParams.planeFractalSpeed + audio.mid * 1.5;
         }
-        if (params.skyboxFractalSpeed !== undefined) {
-            params.skyboxFractalSpeed = (params.skyboxFractalSpeed || 0.6) * 0.5 + 0.3 + audio.high * 1.5;
+        if (baseParams.skyboxFractalSpeed !== undefined) {
+            params.skyboxFractalSpeed = baseParams.skyboxFractalSpeed + audio.high * 1.5;
         }
     }
 
