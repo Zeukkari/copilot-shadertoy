@@ -2788,6 +2788,9 @@ void main() {
     const baseParams = {};
     const AUDIO_DRIVEN_KEYS = ['dispSpeed','fractalSpeed','planeFractalSpeed','skyboxFractalSpeed'];
     let audioWasActive = false;
+    // Snapshot of fractalBase.colorIntensity captured on first activation, so we
+    // can dim/brighten the bg around it and restore on stop.
+    let baseFractalColorIntensity = null;
 
     function snapshotBaseline() {
         for (const k of AUDIO_DRIVEN_KEYS) {
@@ -2806,28 +2809,56 @@ void main() {
         if (active && !audioWasActive) snapshotBaseline();
         if (!active && audioWasActive) restoreBaseline();
         audioWasActive = active;
-        if (!active) return;
-
-        // Bass + beat flash -> explodeAmt (direct map, not accumulation)
-        const burst = Math.min(0.9, audio.bass * 1.2 + audio.beatFlash * 0.6);
-        params.explodeAmt = burst;
-
-        // Mid -> shard spin (direct map)
-        params.shardSpin = audio.mid * 2.5 + audio.beatFlash * 0.8;
-
-        // High/mid -> fractal animation speeds (baseline + audio modulation)
-        if (baseParams.dispSpeed !== undefined) {
-            params.dispSpeed = baseParams.dispSpeed + audio.high * 1.5;
+        if (!active) {
+            // Restore fractal background look when audio stops
+            if (baseFractalColorIntensity !== null) {
+                fractalBase.colorIntensity = baseFractalColorIntensity;
+            }
+            return;
         }
+
+        // ---- Foreground (model) reactivity ----
+        // Explosion: stay within the slider's natural [0, 0.07] range.
+        // Shape: small idle floor + bass-driven swell + sharp beat spikes.
+        // Most of the energy comes from beatFlash so kicks feel punchy without
+        // sending shards across the universe.
+        const EX_MAX = 0.07;
+        const idle   = 0.10;                         // 10% of max as idle floor
+        const swell  = Math.min(0.50, audio.bass * 0.9);   // bass adds up to 50%
+        const punch  = Math.min(0.60, audio.beatFlash * 0.9); // kicks add up to 60%
+        params.explodeAmt = EX_MAX * Math.min(1.0, idle + swell + punch);
+
+        // Shard spin: gentler, mid-driven, with kick spike. Slider's range is [0,3].
+        params.shardSpin = Math.min(2.4, audio.mid * 1.6 + audio.beatFlash * 0.7);
+
+        // Displacement speed (model surface noise) — modest mid modulation.
+        if (baseParams.dispSpeed !== undefined) {
+            params.dispSpeed = baseParams.dispSpeed + audio.mid * 0.6;
+        }
+
+        // ---- Background (fractal layers) reactivity ----
+        // Goal: bg recedes during quiet moments, breathes on kicks. Slow modulation,
+        // small magnitudes — let the model be the star.
         if (baseParams.fractalSpeed !== undefined) {
-            params.fractalSpeed = baseParams.fractalSpeed + audio.high * 2.0;
+            params.fractalSpeed = baseParams.fractalSpeed + audio.high * 0.5;
         }
         if (baseParams.planeFractalSpeed !== undefined) {
-            params.planeFractalSpeed = baseParams.planeFractalSpeed + audio.mid * 1.5;
+            params.planeFractalSpeed = baseParams.planeFractalSpeed + audio.mid * 0.4;
         }
         if (baseParams.skyboxFractalSpeed !== undefined) {
-            params.skyboxFractalSpeed = baseParams.skyboxFractalSpeed + audio.high * 1.5;
+            params.skyboxFractalSpeed = baseParams.skyboxFractalSpeed + audio.high * 0.4;
         }
+
+        // Background brightness: dim baseline (~0.55) with a punchy beat-flash spike.
+        // This pulls visual attention back to the foreground while still letting the
+        // bg breathe with the music.
+        if (baseFractalColorIntensity === null) {
+            baseFractalColorIntensity = fractalBase.colorIntensity;
+        }
+        const dimmed = baseFractalColorIntensity * 0.55;
+        const flashAdd = baseFractalColorIntensity * 0.55 * audio.beatFlash;
+        const bassAdd  = baseFractalColorIntensity * 0.20 * audio.bass;
+        fractalBase.colorIntensity = dimmed + flashAdd + bassAdd;
     }
 
     // ==================== End combined-demo audio + HUD block ====================
