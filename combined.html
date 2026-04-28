@@ -366,6 +366,25 @@
             <input type="range" id="caStrength" min="0" max="0.02" step="0.0005" value="0.004">
             <span class="value-display" id="caStrengthValue">0.004</span>
         </div>
+        <div class="control-group">
+            <label for="fovPumpAmt">FOV pump (kick):</label>
+            <input type="range" id="fovPumpAmt" min="0" max="0.6" step="0.01" value="0.18">
+            <span class="value-display" id="fovPumpAmtValue">0.18</span>
+        </div>
+        <div class="control-group">
+            <label for="trailEnabled">Beat afterimages:</label>
+            <input type="checkbox" id="trailEnabled" checked style="width:auto;cursor:pointer;">
+        </div>
+        <div class="control-group">
+            <label for="trailDecay">Trail length:</label>
+            <input type="range" id="trailDecay" min="0.5" max="0.98" step="0.005" value="0.88">
+            <span class="value-display" id="trailDecayValue">0.88</span>
+        </div>
+        <div class="control-group">
+            <label for="trailStrength">Trail strength:</label>
+            <input type="range" id="trailStrength" min="0" max="2" step="0.02" value="0.70">
+            <span class="value-display" id="trailStrengthValue">0.70</span>
+        </div>
 
         <h3>Voronoi mode</h3>
         <div class="control-group">
@@ -779,15 +798,33 @@ void main() {
 }
 </script>
 
+    <script type="x-shader/x-fragment" id="post-trail-fs">
+precision mediump float;
+varying vec2 v_uv;
+uniform sampler2D u_model;   // current frame model-only render (transparent BG)
+uniform sampler2D u_prev;    // previous accumulator
+uniform float u_decay;       // 0..1 fade per frame (0.88 default)
+uniform float u_addAmt;      // how much current model contributes (~0.6)
+void main() {
+  vec3 prev    = texture2D(u_prev,  v_uv).rgb * u_decay;
+  vec4 cur     = texture2D(u_model, v_uv);
+  // Add the current silhouette weighted by its alpha (so empty pixels add nothing)
+  vec3 col     = prev + cur.rgb * cur.a * u_addAmt;
+  gl_FragColor = vec4(col, 1.0);
+}
+</script>
+
     <script type="x-shader/x-fragment" id="post-composite-fs">
 precision mediump float;
 varying vec2 v_uv;
 uniform sampler2D u_scene;
 uniform sampler2D u_bloom;
+uniform sampler2D u_trail;   // silhouette afterimage accumulator
 uniform float u_bloomAmt;    // bloom intensity multiplier (~0.6 baseline)
 uniform float u_caStrength;  // chromatic aberration scale (~0..0.012, kick-driven)
 uniform float u_vignette;    // 0 = off, 1 = strong vignette
 uniform float u_beatFlash;   // 0..1 for hue tint on kicks
+uniform float u_trailAmt;    // overall trail compositing strength
 
 vec3 sampleScene(vec2 uv) {
   return texture2D(u_scene, uv).rgb;
@@ -809,6 +846,12 @@ void main() {
   // Bloom (additive)
   vec3 bloom = texture2D(u_bloom, uv).rgb;
   vec3 col = scene + bloom * u_bloomAmt;
+
+  // Silhouette afterimage (additive, stronger on kicks)
+  vec3 trail = texture2D(u_trail, uv).rgb;
+  // Tint trail slightly cool/violet so it reads as a ghost rather than a duplicate
+  trail *= vec3(0.85, 0.75, 1.20);
+  col += trail * u_trailAmt * (0.55 + u_beatFlash * 0.85);
 
   // Subtle hue lift on kicks (warm → cyan toward edges)
   col = mix(col, col * vec3(1.06, 1.0, 1.10), u_beatFlash * 0.45);
@@ -1760,6 +1803,7 @@ void main() {
     }
     const postBrightProg = buildPostProg("post-bright-fs",    "post-bright");
     const postBlurProg   = buildPostProg("post-blur-fs",      "post-blur");
+    const postTrailProg  = buildPostProg("post-trail-fs",     "post-trail");
     const postCompProg   = buildPostProg("post-composite-fs", "post-composite");
     const postBrightLoc = {
         pos:       gl.getAttribLocation(postBrightProg,  "a_position"),
@@ -1772,23 +1816,38 @@ void main() {
         src:      gl.getUniformLocation(postBlurProg, "u_src"),
         texelDir: gl.getUniformLocation(postBlurProg, "u_texelDir"),
     };
+    const postTrailLoc = {
+        pos:    gl.getAttribLocation(postTrailProg,  "a_position"),
+        model:  gl.getUniformLocation(postTrailProg, "u_model"),
+        prev:   gl.getUniformLocation(postTrailProg, "u_prev"),
+        decay:  gl.getUniformLocation(postTrailProg, "u_decay"),
+        addAmt: gl.getUniformLocation(postTrailProg, "u_addAmt"),
+    };
     const postCompLoc = {
         pos:        gl.getAttribLocation(postCompProg,  "a_position"),
         scene:      gl.getUniformLocation(postCompProg, "u_scene"),
         bloom:      gl.getUniformLocation(postCompProg, "u_bloom"),
+        trail:      gl.getUniformLocation(postCompProg, "u_trail"),
         bloomAmt:   gl.getUniformLocation(postCompProg, "u_bloomAmt"),
         caStrength: gl.getUniformLocation(postCompProg, "u_caStrength"),
         vignette:   gl.getUniformLocation(postCompProg, "u_vignette"),
         beatFlash:  gl.getUniformLocation(postCompProg, "u_beatFlash"),
+        trailAmt:   gl.getUniformLocation(postCompProg, "u_trailAmt"),
     };
 
     // ════════════ Framebuffers (allocated/resized in ensureFBOs) ════════════
     // sceneFBO: full-res scene render target (color + depth)
     // bloomA/bloomB: half-res ping-pong for bright-pass + blur
+    // modelFBO: half-res model-only render (transparent clear), source for trails
+    // trailA/trailB: half-res ping-pong accumulator for kick-driven afterimages
     const post = {
         sceneTex: null, sceneFBO: null, sceneDepth: null,
         bloomTexA: null, bloomFBOA: null,
         bloomTexB: null, bloomFBOB: null,
+        modelTex: null, modelFBO: null, modelDepth: null,
+        trailTexA: null, trailFBOA: null,
+        trailTexB: null, trailFBOB: null,
+        trailIdx: 0,  // 0 means A is "current" (last written), 1 means B is current
         w: 0, h: 0,
         bw: 0, bh: 0,
         sceneFmt: gl.UNSIGNED_BYTE,  // upgraded to HALF_FLOAT if extension allows color-renderable half float
@@ -1834,6 +1893,13 @@ void main() {
         if (post.bloomFBOA) gl.deleteFramebuffer(post.bloomFBOA);
         if (post.bloomTexB) gl.deleteTexture(post.bloomTexB);
         if (post.bloomFBOB) gl.deleteFramebuffer(post.bloomFBOB);
+        if (post.modelTex) gl.deleteTexture(post.modelTex);
+        if (post.modelFBO) gl.deleteFramebuffer(post.modelFBO);
+        if (post.modelDepth) gl.deleteRenderbuffer(post.modelDepth);
+        if (post.trailTexA) gl.deleteTexture(post.trailTexA);
+        if (post.trailFBOA) gl.deleteFramebuffer(post.trailFBOA);
+        if (post.trailTexB) gl.deleteTexture(post.trailTexB);
+        if (post.trailFBOB) gl.deleteFramebuffer(post.trailFBOB);
 
         post.w = w; post.h = h;
         post.bw = Math.max(2, w >> 1);
@@ -1860,6 +1926,25 @@ void main() {
         post.bloomFBOA = makeFBO(post.bloomTexA, null);
         post.bloomTexB = makeColorTex(post.bw, post.bh, gl.UNSIGNED_BYTE);
         post.bloomFBOB = makeFBO(post.bloomTexB, null);
+
+        // Model-only render target (half-res, with own depth) for silhouette trails
+        post.modelTex = makeColorTex(post.bw, post.bh, gl.UNSIGNED_BYTE);
+        post.modelDepth = gl.createRenderbuffer();
+        gl.bindRenderbuffer(gl.RENDERBUFFER, post.modelDepth);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, post.bw, post.bh);
+        post.modelFBO = makeFBO(post.modelTex, post.modelDepth);
+
+        // Trail ping-pong accumulator (no depth)
+        post.trailTexA = makeColorTex(post.bw, post.bh, gl.UNSIGNED_BYTE);
+        post.trailFBOA = makeFBO(post.trailTexA, null);
+        post.trailTexB = makeColorTex(post.bw, post.bh, gl.UNSIGNED_BYTE);
+        post.trailFBOB = makeFBO(post.trailTexB, null);
+        // Clear both trail buffers to black so the very first frame doesn't sample garbage
+        gl.bindFramebuffer(gl.FRAMEBUFFER, post.trailFBOA);
+        gl.viewport(0, 0, post.bw, post.bh);
+        gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, post.trailFBOB);
+        gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
 
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
@@ -1888,6 +1973,12 @@ void main() {
         const beatFlash  = audioOn ? audio.beatFlash : 0;
         // CA grows with kicks: base + beat-driven spike
         const ca = enabled ? (caBase + beatFlash * 0.012) : 0.0;
+        // Trail compositing strength (0 if disabled)
+        const trailAmt   = (params.trailEnabled !== false && enabled)
+            ? (params.trailStrength !== undefined ? params.trailStrength : 0.7)
+            : 0.0;
+        // Most-recently-written trail tex (post-flip in render())
+        const trailTex   = (post.trailIdx === 0) ? post.trailTexA : post.trailTexB;
 
         if (!enabled) {
             // Bypass: just blit sceneTex to canvas
@@ -1904,10 +1995,13 @@ void main() {
             gl.viewport(0, 0, targetW, targetH);
             gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, post.bloomTexA);
             gl.uniform1i(postCompLoc.bloom, 1);
+            gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, trailTex);
+            gl.uniform1i(postCompLoc.trail, 2);
             gl.uniform1f(postCompLoc.bloomAmt, 0);
             gl.uniform1f(postCompLoc.caStrength, 0);
             gl.uniform1f(postCompLoc.vignette, 0);
             gl.uniform1f(postCompLoc.beatFlash, 0);
+            gl.uniform1f(postCompLoc.trailAmt, 0);
             drawFullscreenQuad(postCompLoc.pos);
             return;
         }
@@ -1936,7 +2030,7 @@ void main() {
         gl.uniform2f(postBlurLoc.texelDir, 0, 1.5 / post.bh);
         drawFullscreenQuad(postBlurLoc.pos);
 
-        // 3) Composite: scene + bloomA -> canvas
+        // 3) Composite: scene + bloomA + trail -> canvas
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.viewport(0, 0, targetW, targetH);
         gl.useProgram(postCompProg);
@@ -1944,10 +2038,13 @@ void main() {
         gl.uniform1i(postCompLoc.scene, 0);
         gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, post.bloomTexA);
         gl.uniform1i(postCompLoc.bloom, 1);
+        gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, trailTex);
+        gl.uniform1i(postCompLoc.trail, 2);
         gl.uniform1f(postCompLoc.bloomAmt, bloomAmt);
         gl.uniform1f(postCompLoc.caStrength, ca);
         gl.uniform1f(postCompLoc.vignette, vignette);
         gl.uniform1f(postCompLoc.beatFlash, beatFlash);
+        gl.uniform1f(postCompLoc.trailAmt, trailAmt);
         drawFullscreenQuad(postCompLoc.pos);
     }
     // =================================================
@@ -2093,6 +2190,11 @@ void main() {
         bloomThresh: 0.72,
         vignetteAmt: 0.55,
         caStrength: 0.004,
+        // Beat-driven camera + trail FX
+        fovPumpAmt: 0.18,        // radians added to FOV at peak kick (~10°)
+        trailEnabled: true,
+        trailDecay: 0.88,        // per-frame fade of accumulator (higher = longer trails)
+        trailStrength: 0.7,      // how strongly trail is composited over scene
         // Fractal Plane
         planeVisible: false,
         planeScale: 2.5,
@@ -2228,6 +2330,14 @@ void main() {
         {
             const el = document.getElementById("postEnabled");
             if (el) el.addEventListener("change", e => { params.postEnabled = e.target.checked; });
+        }
+        // Beat-driven camera + trail bindings
+        bind("fovPumpAmt",   "fovPumpAmt");
+        bind("trailDecay",   "trailDecay");
+        bind("trailStrength","trailStrength");
+        {
+            const el = document.getElementById("trailEnabled");
+            if (el) el.addEventListener("change", e => { params.trailEnabled = e.target.checked; });
         }
         bind("planeScale", "planeScale");
         bind("planeY", "planeY");
@@ -2583,6 +2693,8 @@ void main() {
     let cameraLastDragX = 0;
     let cameraLastDragY = 0;
     let lastRenderTime  = Date.now();
+    // Current FOV (radians) — pumped by beats in render(); read by all 3-D draw fns
+    let currentFov = Math.PI / 4;
 
     /** Shared camera eye-point used by all three 3-D draw functions. */
     function computeCameraEye() {
@@ -2690,7 +2802,7 @@ void main() {
         if (!mesh) return;
 
         const aspect = w / h;
-        const proj = perspective(Math.PI / 4, aspect, 0.05, 80);
+        const proj = perspective(currentFov, aspect, 0.05, 80);
 
         const yaw = rotationYMat4(params.modelYaw);
         const userScale = scaleMat4(params.modelScale, params.modelScale, params.modelScale);
@@ -2785,7 +2897,7 @@ void main() {
     // ── Fractal Plane draw call ──────────────────────────────────────────────
     function drawFractalPlane(w, h, time) {
         const aspect = w / h;
-        const proj   = perspective(Math.PI / 4, aspect, 0.05, 80);
+        const proj   = perspective(currentFov, aspect, 0.05, 80);
 
         const eye  = computeCameraEye();
         const view = lookAtView(eye, worldCenter, [0, 1, 0]);
@@ -2843,7 +2955,7 @@ void main() {
     // ── Skybox — 6 Julia fractal planes arranged as a cube ─────────────────
     function drawSkybox(w, h, time) {
         const aspect  = w / h;
-        const proj    = perspective(Math.PI / 4, aspect, 0.05, 80);
+        const proj    = perspective(currentFov, aspect, 0.05, 80);
         const eye     = computeCameraEye();
         const view = lookAtView(eye, worldCenter, [0, 1, 0]);
 
@@ -3502,6 +3614,16 @@ void main() {
         computeAudioFeatures();
         applyAudioToParams();
 
+        // Beat-driven FOV pump: kick widens FOV briefly (zoom-out feel)
+        {
+            const fovBase   = Math.PI / 4;
+            const audioOn   = (audio.drumsActive || audio.micActive);
+            const pumpAmt   = (params.fovPumpAmt !== undefined) ? params.fovPumpAmt : 0.18;
+            const drive     = audioOn ? audio.beatFlash : 0;
+            // Squared so the pump feels punchier (concentrated near the kick)
+            currentFov = fovBase + drive * drive * pumpAmt;
+        }
+
         // Auto-rotate camera azimuth when enabled and not dragging
         if (params.camAutoRotate && !cameraDragging) {
             cameraAzimuth += dt * (params.orbitSpeed !== undefined ? params.orbitSpeed : 0.35);
@@ -3551,7 +3673,52 @@ void main() {
 
         drawModel(targetWidth, targetHeight, time);
 
-        // ─── Post-process: scene FBO → canvas (bloom + CA + vignette) ───
+        // ─── Silhouette afterimage trail (optional) ───
+        // 1) Re-render the model alone into modelFBO (transparent BG, half-res).
+        // 2) Accumulate: newTrail = oldTrail*decay + model*addAmt → write into the
+        //    *other* trail FBO; flip trailIdx so the just-written one becomes "current".
+        if (params.trailEnabled !== false) {
+            // (1) Model-only pass
+            gl.bindFramebuffer(gl.FRAMEBUFFER, post.modelFBO);
+            gl.viewport(0, 0, post.bw, post.bh);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            gl.enable(gl.DEPTH_TEST);
+            gl.enable(gl.CULL_FACE);
+            // drawModel uses (w, h) only for aspect ratio — half-res preserves it.
+            drawModel(post.bw, post.bh, time);
+
+            // (2) Accumulator step: read whichever trail tex is "current"; write
+            //     to the other one.
+            const prevTex = (post.trailIdx === 0) ? post.trailTexA : post.trailTexB;
+            const dstFBO  = (post.trailIdx === 0) ? post.trailFBOB : post.trailFBOA;
+            gl.bindFramebuffer(gl.FRAMEBUFFER, dstFBO);
+            gl.viewport(0, 0, post.bw, post.bh);
+            gl.disable(gl.DEPTH_TEST);
+            gl.disable(gl.CULL_FACE);
+            gl.disable(gl.BLEND);
+            gl.useProgram(postTrailProg);
+            gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, post.modelTex);
+            gl.uniform1i(postTrailLoc.model, 0);
+            gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, prevTex);
+            gl.uniform1i(postTrailLoc.prev, 1);
+            const decay = (params.trailDecay !== undefined) ? params.trailDecay : 0.88;
+            gl.uniform1f(postTrailLoc.decay,  decay);
+            gl.uniform1f(postTrailLoc.addAmt, 0.55);
+            drawFullscreenQuad(postTrailLoc.pos);
+            // Flip ping-pong
+            post.trailIdx = 1 - post.trailIdx;
+        } else {
+            // Trails disabled: bleed accumulator out so re-enabling starts fresh
+            // (cheap: one quick clear of the "current" trail tex).
+            const dstFBO = (post.trailIdx === 0) ? post.trailFBOA : post.trailFBOB;
+            gl.bindFramebuffer(gl.FRAMEBUFFER, dstFBO);
+            gl.viewport(0, 0, post.bw, post.bh);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+        }
+
+        // ─── Post-process: scene FBO → canvas (bloom + CA + vignette + trail) ───
         runPostFX(targetWidth, targetHeight);
 
         // 2D HUD overlay (additive via mix-blend-mode: screen) — drawn over canvas
