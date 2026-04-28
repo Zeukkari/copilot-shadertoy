@@ -458,6 +458,120 @@ void main() {
 }
 </script>
 
+    <script type="x-shader/x-fragment" id="alien-skin-fs">
+precision highp float;
+varying vec2 v_uv;
+uniform vec2  u_resolution;
+uniform float u_time;
+uniform float u_intensity;   // overall brightness multiplier (matches old colorIntensity)
+uniform float u_bass;        // 0..1, slow-smoothed
+uniform float u_beatFlash;   // 0..1, decays after kick
+uniform float u_centroid;    // 0..1, brightness shifts hue subtly
+uniform float u_scale;       // cell density (~6.0 = many small scales)
+uniform vec3  u_baseCol;     // dominant skin tone
+uniform vec3  u_veinCol;     // crack/vein color
+uniform vec3  u_pulseCol;    // beat highlight color
+
+// Hash + noise helpers (no textures)
+vec2 hash22(vec2 p) {
+    p = vec2(dot(p, vec2(127.1, 311.7)),
+             dot(p, vec2(269.5, 183.3)));
+    return fract(sin(p) * 43758.5453) * 2.0 - 1.0;
+}
+float hash21(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+// Cheap value-noise for low-freq breathing
+float valNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    float a = hash21(i);
+    float b = hash21(i + vec2(1, 0));
+    float c = hash21(i + vec2(0, 1));
+    float d = hash21(i + vec2(1, 1));
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// Voronoi: returns (F1, F2, cellCenterDistFromHere, cellId.x)
+// F1 = distance to nearest cell center, F2 = distance to 2nd nearest
+// (F2 - F1) is the classic "crack" measure (small near borders).
+vec4 voronoi(vec2 x, float jitter) {
+    vec2 ip = floor(x);
+    vec2 fp = fract(x);
+    float F1 = 8.0, F2 = 8.0;
+    vec2  closest = vec2(0.0);
+    for (int j = -1; j <= 1; j++) {
+        for (int i = -1; i <= 1; i++) {
+            vec2 g = vec2(float(i), float(j));
+            vec2 o = hash22(ip + g) * 0.5 + 0.5;     // 0..1 cell offset
+            // Animated jitter: tiny breath motion based on cell id
+            float ph = u_time * 0.35 + dot(ip + g, vec2(1.7, 2.3));
+            o += jitter * 0.18 * vec2(sin(ph), cos(ph * 1.3));
+            vec2 r = g + o - fp;
+            float d = dot(r, r);
+            if (d < F1) {
+                F2 = F1;
+                F1 = d;
+                closest = ip + g;
+            } else if (d < F2) {
+                F2 = d;
+            }
+        }
+    }
+    return vec4(sqrt(F1), sqrt(F2), F2 - F1, closest.x + closest.y * 31.7);
+}
+
+void main() {
+    // Aspect-correct UV in scale units (so cells stay round on widescreen)
+    vec2 uv = v_uv;
+    vec2 p  = (uv - 0.5) * u_resolution / u_resolution.y;
+    // Slow drifting + subtle bass-driven pulse of the entire skin
+    p += vec2(sin(u_time * 0.07) * 0.12, cos(u_time * 0.05) * 0.10);
+    p *= u_scale * (1.0 + u_bass * 0.04);
+
+    // Two-octave voronoi: large scales + small bumps for surface texture
+    vec4 v1 = voronoi(p,             1.0);
+    vec4 v2 = voronoi(p * 3.7 + 17.0, 0.6);
+
+    // Cell dome: scale "rises" toward its center (bright in middle, dim at edge)
+    float dome    = 1.0 - smoothstep(0.0, 0.85, v1.x);
+    // Crack: F2 - F1 is small at borders → invert for a glow line in the cracks
+    float crack   = 1.0 - smoothstep(0.0, 0.10, v1.z);
+    // Fine secondary texture (tiny pustules dotting the scales)
+    float pustule = 1.0 - smoothstep(0.0, 0.45, v2.x);
+
+    // Per-cell color variation (some scales darker, some greener)
+    float cellRand = fract(v1.w * 0.137);
+    vec3 baseTinted = mix(u_baseCol * 0.55, u_baseCol * 1.20, cellRand);
+
+    // Compose
+    vec3 col = baseTinted * (0.35 + dome * 0.85);
+    // Pustule highlight (slight wet-spec sheen)
+    col += vec3(0.12, 0.16, 0.10) * pustule * dome * 0.6;
+    // Vein/crack glow — pulses with the kick
+    float veinAmp = 0.35 + u_beatFlash * 0.65;
+    col += u_veinCol * crack * veinAmp;
+    // Beat-driven shimmer at scale tops
+    col += u_pulseCol * dome * pustule * u_beatFlash * 0.8;
+
+    // Slow low-freq color breathing (subtle hue shift)
+    float breathe = valNoise(p * 0.15 + vec2(u_time * 0.06, 0.0));
+    col *= mix(0.85, 1.15, breathe);
+
+    // Subtle centroid hue lift (brighter mic/drum content → warmer skin)
+    col = mix(col, col * vec3(1.1, 1.0, 0.9), clamp((u_centroid - 0.4) * 0.6, 0.0, 0.4));
+
+    // Edge darkening for depth
+    float vig = smoothstep(1.4, 0.4, length(p) * 0.22);
+    col *= mix(0.55, 1.0, vig);
+
+    // Apply intensity (matches old fractalBase.colorIntensity dimming/flashing)
+    col *= u_intensity;
+
+    gl_FragColor = vec4(col, 1.0);
+}
+</script>
+
     <script type="x-shader/x-fragment" id="mf-fs">
   precision mediump float;
   
@@ -1772,6 +1886,32 @@ void main() {
         console.error("mf", gl.getProgramInfoLog(mfProg));
     }
 
+    // Alien skin background program (replaces the multifractal fullscreen bg).
+    // Note: mfProg is unused now but the multifractal vs/fs scripts are kept
+    // because skybox/plane Julia draws may reference fractalBase state through
+    // their own programs.
+    const skinFs = createShader(gl, gl.FRAGMENT_SHADER, document.getElementById("alien-skin-fs").text);
+    const skinProg = gl.createProgram();
+    gl.attachShader(skinProg, mfVs);     // reuse the same VS
+    gl.attachShader(skinProg, skinFs);
+    gl.linkProgram(skinProg);
+    if (!gl.getProgramParameter(skinProg, gl.LINK_STATUS)) {
+        console.error("alien-skin", gl.getProgramInfoLog(skinProg));
+    }
+    const skinLoc = {
+        pos:        gl.getAttribLocation(skinProg,  "a_position"),
+        resolution: gl.getUniformLocation(skinProg, "u_resolution"),
+        time:       gl.getUniformLocation(skinProg, "u_time"),
+        intensity:  gl.getUniformLocation(skinProg, "u_intensity"),
+        bass:       gl.getUniformLocation(skinProg, "u_bass"),
+        beatFlash:  gl.getUniformLocation(skinProg, "u_beatFlash"),
+        centroid:   gl.getUniformLocation(skinProg, "u_centroid"),
+        scale:      gl.getUniformLocation(skinProg, "u_scale"),
+        baseCol:    gl.getUniformLocation(skinProg, "u_baseCol"),
+        veinCol:    gl.getUniformLocation(skinProg, "u_veinCol"),
+        pulseCol:   gl.getUniformLocation(skinProg, "u_pulseCol"),
+    };
+
     // Fractal Plane program
     const planeVs = createShader(gl, gl.VERTEX_SHADER,   document.getElementById("plane-vs").text);
     const planeFs = createShader(gl, gl.FRAGMENT_SHADER, document.getElementById("plane-fs").text);
@@ -2764,37 +2904,30 @@ void main() {
         if (animEnabled) updateLiveParams(performance.now() / 1000);
         updatePointerForFrame();
         updateFractalBaseAnimations(timeSec);
-        gl.useProgram(mfProg);
+
+        // Alien-skin background (replaces the multifractal/Julia render here).
+        // The multifractal/Julia state in `fractalBase` is still mutated above
+        // because skybox + plane shaders consume those uniforms in their own draws.
+        gl.useProgram(skinProg);
         gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
-        gl.enableVertexAttribArray(mfPosLoc);
-        gl.vertexAttribPointer(mfPosLoc, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(skinLoc.pos);
+        gl.vertexAttribPointer(skinLoc.pos, 2, gl.FLOAT, false, 0, 0);
 
-        const cx = fractalBase.center[0] + pointerEffect.fractPanX;
-        const cy = fractalBase.center[1] + pointerEffect.fractPanY;
-        const zm = Math.max(0.12, fractalBase.zoom + pointerEffect.fractZoomAdd);
-        const rot = fractalBase.rotation + pointerEffect.fractRotAdd;
-        const jc0 = fractalBase.juliaC[0] + pointerEffect.fractJuliaX;
-        const jc1 = fractalBase.juliaC[1] + pointerEffect.fractJuliaY;
-        const j2x = fractalBase.juliaC2[0] + pointerEffect.fractJuliaX * 0.7;
-        const j3x = fractalBase.juliaC3[0] + pointerEffect.fractJuliaX * 0.5;
+        const audioOn   = (audio.drumsActive || audio.micActive);
+        const skinScale = (params.skinScale !== undefined) ? params.skinScale : 6.5;
 
-        gl.uniform2f(uMfRes, w, h);
-        gl.uniform2f(uMfCenter, cx, cy);
-        gl.uniform1f(uMfZoom, zm);
-        gl.uniform1i(uMfMaxIter, fractalBase.maxIter);
-        gl.uniform1f(uMfRot, rot);
-        gl.uniform1f(uMfEscape, fractalBase.escapeR);
-        gl.uniform1f(uMfColorOff, fractalBase.colorOffset + pointerEffect.fractColorSpeed * 0.1);
-        gl.uniform1f(uMfColorSpeed, fractalBase.colorSpeed + pointerEffect.fractColorSpeed);
-        gl.uniform1f(uMfColorInt, fractalBase.colorIntensity);
-        gl.uniform1i(uMfJuliaMode, fractalBase.juliaMode);
-        gl.uniform2f(uMfJuliaC, jc0, jc1);
-        gl.uniform2f(uMfJuliaC2, j2x, fractalBase.juliaC2[1] + pointerEffect.fractJuliaY * 0.7);
-        gl.uniform2f(uMfJuliaC3, j3x, fractalBase.juliaC3[1] + pointerEffect.fractJuliaY * 0.5);
-        gl.uniform1f(uMfGreenRot, fractalBase.greenRot + pointerEffect.fractGreenRot);
-        gl.uniform1f(uMfRedRot, fractalBase.redRot + pointerEffect.fractRedRot);
-        gl.uniform1f(uMfTime, timeSec);
-        gl.uniform1i(uMfPalette, fractalBase.palette);
+        gl.uniform2f(skinLoc.resolution, w, h);
+        gl.uniform1f(skinLoc.time,       timeSec);
+        // Reuse the existing colorIntensity dimming so kicks still flash the bg.
+        gl.uniform1f(skinLoc.intensity,  fractalBase.colorIntensity);
+        gl.uniform1f(skinLoc.bass,       audioOn ? audio.bass      : 0.0);
+        gl.uniform1f(skinLoc.beatFlash,  audioOn ? audio.beatFlash : 0.0);
+        gl.uniform1f(skinLoc.centroid,   audioOn ? audio.centroid  : 0.5);
+        gl.uniform1f(skinLoc.scale,      skinScale);
+        // Deep teal/green skin, purple veins, cyan-white pulse highlight
+        gl.uniform3f(skinLoc.baseCol,  0.10, 0.32, 0.24);
+        gl.uniform3f(skinLoc.veinCol,  0.55, 0.22, 0.85);
+        gl.uniform3f(skinLoc.pulseCol, 0.65, 0.95, 0.85);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
