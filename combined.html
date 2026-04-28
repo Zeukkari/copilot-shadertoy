@@ -158,8 +158,8 @@
         <h3>Scene</h3>
         <div class="control-group">
             <label for="modelScale">Model scale:</label>
-            <input type="range" id="modelScale" min="0.3" max="2.5" step="0.01" value="1.0">
-            <span class="value-display" id="modelScaleValue">1.00</span>
+            <input type="range" id="modelScale" min="0.3" max="2.5" step="0.01" value="0.8">
+            <span class="value-display" id="modelScaleValue">0.80</span>
         </div>
         <div class="control-group">
             <label for="modelYaw">Model yaw:</label>
@@ -348,9 +348,9 @@
     <div class="audio-panel">
         <label>Audio:</label>
         <select id="audioSrc">
-            <option value="off" selected>Off</option>
+            <option value="off">Off</option>
             <option value="drums">Drums (gen)</option>
-            <option value="mic">Microphone</option>
+            <option value="mic" selected>Microphone</option>
             <option value="both">Drums + Mic</option>
         </select>
         <button id="audioStart">Start</button>
@@ -1533,7 +1533,7 @@ void main() {
 
     const defaults = {
         quality: 1.0,
-        modelScale: 1.0,
+        modelScale: 0.8,
         modelYaw: 0.0,
         camDist: 1.4,
         dispAmp: 0.04,
@@ -2606,6 +2606,19 @@ void main() {
     document.getElementById('audioSrc').addEventListener('change', (e) => {
         // If something is already running, switch live
         if (audio.drumsActive || audio.micActive) applyAudioSource(e.target.value);
+    });
+
+    // Auto-start on first user gesture (browsers block getUserMedia + AudioContext
+    // without a user-initiated event). Uses the dropdown's current selection.
+    let autoStarted = false;
+    function autoStartOnce() {
+        if (autoStarted) return;
+        autoStarted = true;
+        const src = document.getElementById('audioSrc').value;
+        if (src !== 'off') applyAudioSource(src);
+    }
+    ['pointerdown', 'keydown', 'touchstart'].forEach(ev => {
+        window.addEventListener(ev, autoStartOnce, { once: true, capture: true });
     });
 
     // ---------- Feature extraction ----------
