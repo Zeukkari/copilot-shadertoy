@@ -341,6 +341,50 @@
             <span class="value-display" id="camElevationValue">0.18</span>
         </div>
 
+        <h3>Voronoi mode</h3>
+        <div class="control-group">
+            <label for="voroScale">Cell size:</label>
+            <input type="range" id="voroScale" min="0.6" max="6.0" step="0.05" value="2.0">
+            <span class="value-display" id="voroScaleValue">2.00</span>
+        </div>
+        <div class="control-group">
+            <label for="voroDispAmp">Bulge amount:</label>
+            <input type="range" id="voroDispAmp" min="0" max="0.6" step="0.005" value="0.18">
+            <span class="value-display" id="voroDispAmpValue">0.18</span>
+        </div>
+
+        <h3>HUD overlay</h3>
+        <div class="control-group">
+            <label for="hudVisible">Show HUD:</label>
+            <input type="checkbox" id="hudVisible" checked style="width:auto;cursor:pointer;">
+        </div>
+        <div class="control-group">
+            <label for="hudSize">Overall size:</label>
+            <input type="range" id="hudSize" min="0.15" max="0.55" step="0.01" value="0.32">
+            <span class="value-display" id="hudSizeValue">0.32</span>
+        </div>
+        <div class="control-group">
+            <label for="hudPersist">Trail persistence:</label>
+            <input type="range" id="hudPersist" min="0.5" max="0.98" step="0.01" value="0.86">
+            <span class="value-display" id="hudPersistValue">0.86</span>
+        </div>
+        <div class="control-group">
+            <label for="hudShowSpectrum">Spectrum ring:</label>
+            <input type="checkbox" id="hudShowSpectrum" checked style="width:auto;cursor:pointer;">
+        </div>
+        <div class="control-group">
+            <label for="hudShowSpiral">Spiral waveform:</label>
+            <input type="checkbox" id="hudShowSpiral" checked style="width:auto;cursor:pointer;">
+        </div>
+        <div class="control-group">
+            <label for="hudShowKick">Kick shockwave:</label>
+            <input type="checkbox" id="hudShowKick" checked style="width:auto;cursor:pointer;">
+        </div>
+        <div class="control-group">
+            <label for="hudShowPulse">Bass pulse dot:</label>
+            <input type="checkbox" id="hudShowPulse" checked style="width:auto;cursor:pointer;">
+        </div>
+
         <button id="resetBtn" class="reset-btn">Reset to default</button>
     </div>
     <button id="toggleControls" title="Toggle controls">⚙️</button>
@@ -694,6 +738,9 @@ uniform vec2 u_juliaC3;
 uniform float u_fractalAmp;
 uniform float u_fractalFreq;
 uniform float u_fractalSpeed;
+uniform float u_voroScale;
+uniform float u_voroDispAmp;
+uniform float u_voroPulse;
 varying vec3 v_normal;
 varying vec3 v_view;
 varying vec2 v_uv;
@@ -715,13 +762,51 @@ mat3 rotAxisAngle(vec3 axis, float angle) {
   );
 }
 
+// ---- vertex-side voronoi helpers (inline, fewer ops than fragment version) ----
+vec2 vsHashPt(vec2 q, float t) {
+  float n = sin(dot(q, vec2(41.0, 289.0)));
+  vec2 r = fract(vec2(262144.0, 32768.0) * n);
+  return sin(r * 6.2831853 + t) * (sin(t) + 1.0) * 0.5 + 0.5;
+}
+// Returns cell distance to nearest seed (peaks ~0 near seeds, larger near edges).
+float vsVoronoiCellDist(vec2 p, float t) {
+  vec2 pH = floor(p);
+  float md = 8.0;
+  for (int j = -1; j <= 1; ++j)
+  for (int i = -1; i <= 1; ++i) {
+    vec2 q = pH + vec2(float(i), float(j));
+    vec2 c = q + 0.5 + (vsHashPt(q, t) - 0.5) * 0.5;
+    vec2 h = c - p;
+    float d = dot(h, h);
+    if (d < md) md = d;
+  }
+  return sqrt(md);
+}
+// Triplanar 2D coord on the model surface, scale-aware.
+vec2 vsTriplanarUV(vec3 p, vec3 n, float scale) {
+  vec3 an = abs(normalize(n));
+  if (an.y > an.x && an.y > an.z)      return p.xz * scale;
+  else if (an.x > an.z)                return p.yz * scale;
+  else                                 return p.xy * scale;
+}
+
 void main() {
   vec3 n = normalize(a_normal);
   vec3 p = a_position;
   v_shardMix = 0.0;
   v_fractalMag = 0.0;
 
-  if (u_effectMode > 1.5) {
+  if (u_effectMode > 2.5) {
+    // --- Voronoi cells: bulge surface based on cell distance ---
+    vec2 vp = vsTriplanarUV(p, n, u_voroScale);
+    float cellD = vsVoronoiCellDist(vp, u_time * 0.6);
+    // Cell centers ~0, edges ~0.5. Push centers outward, edges inward.
+    float bulge = 0.5 - cellD;        // ~[-0.4, +0.5]
+    bulge += u_voroPulse * 0.6;        // beat-driven extra puff
+    p += n * bulge * u_voroDispAmp;
+    v_dispHighlight = clamp(0.5 + bulge, 0.0, 1.0);
+    v_fractalMag    = clamp(bulge + 0.5, 0.0, 1.0);
+  } else if (u_effectMode > 1.5) {
     // --- Eldritch Pulse: Julia-driven displacement ---
     // Map 3D position to a 2D fractal domain via two dot products
     float freq = u_fractalFreq;
@@ -1600,6 +1685,8 @@ void main() {
     const uFractalSpd  = gl.getUniformLocation(modelProg, "u_fractalSpeed");
     const uVoroScale   = gl.getUniformLocation(modelProg, "u_voroScale");
     const uVoroBeat    = gl.getUniformLocation(modelProg, "u_voroBeat");
+    const uVoroDispAmp = gl.getUniformLocation(modelProg, "u_voroDispAmp");
+    const uVoroPulse   = gl.getUniformLocation(modelProg, "u_voroPulse");
 
     const mBary = gl.getAttribLocation(modelProg, "a_bary");
 
@@ -1682,6 +1769,9 @@ void main() {
         fractalAmp: 0.08,
         fractalFreq: 1.8,
         fractalSpeed: 0.7,
+        // Voronoi mode
+        voroScale: 2.0,
+        voroDispAmp: 0.18,
         // Fractal Plane
         planeVisible: false,
         planeScale: 2.5,
@@ -1795,6 +1885,8 @@ void main() {
         bind("fractalAmp", "fractalAmp");
         bind("fractalFreq", "fractalFreq");
         bind("fractalSpeed", "fractalSpeed");
+        bind("voroScale", "voroScale");
+        bind("voroDispAmp", "voroDispAmp");
         bind("planeScale", "planeScale");
         bind("planeY", "planeY");
         bind("planeDisp", "planeDisp");
@@ -2324,11 +2416,17 @@ void main() {
         const b2 = parseInt(ec.slice(5,7),16)/255;
         gl.uniform3f(uEdgeColor, r, g2, b2);
         gl.uniform1f(uEdgeWidth, params.edgeWidth !== undefined ? params.edgeWidth : 0.035);
-        // Voronoi mode: scale (cell density) reacts to bass; beat-flash flips palette
-        const voroBass = (typeof audio !== 'undefined' && (audio.drumsActive || audio.micActive)) ? audio.bass : 0;
-        const voroBeat = (typeof audio !== 'undefined' && (audio.drumsActive || audio.micActive)) ? audio.beatFlash : 0;
-        gl.uniform1f(uVoroScale, 9.0 + voroBass * 6.0);
-        gl.uniform1f(uVoroBeat,  Math.min(1.0, voroBeat));
+        // Voronoi mode: bigger cells (~2-3 across model), bass squeezes density,
+        // beats flip palette and puff displacement
+        const audioOn = (typeof audio !== 'undefined' && (audio.drumsActive || audio.micActive));
+        const voroBass = audioOn ? audio.bass : 0;
+        const voroBeat = audioOn ? audio.beatFlash : 0;
+        const voroAmp  = (params.voroDispAmp !== undefined) ? params.voroDispAmp : 0.18;
+        const voroScl  = (params.voroScale   !== undefined) ? params.voroScale   : 2.0;
+        gl.uniform1f(uVoroScale,   voroScl + voroBass * 0.8);
+        gl.uniform1f(uVoroBeat,    Math.min(1.0, voroBeat));
+        gl.uniform1f(uVoroDispAmp, voroAmp);
+        gl.uniform1f(uVoroPulse,   voroBeat);
         // Eldritch Pulse — pass Julia constants (same live values used by the background)
         gl.uniform2f(uJuliaC,  fractalBase.juliaC[0]  + pointerEffect.fractJuliaX,
                                fractalBase.juliaC[1]  + pointerEffect.fractJuliaY);
@@ -2814,6 +2912,13 @@ void main() {
         visible: true,
         spiralPhase: 0,
         hueOffset: 0,
+        // Tunables (mirror checkbox/slider state from the controls panel)
+        size: 0.32,         // R = min(W,H) * size
+        persist: 0.86,      // alpha of destination-in fade rectangle (higher = longer trail)
+        showSpectrum: true,
+        showSpiral: true,
+        showKick: true,
+        showPulse: true,
         // Persistence buffer (offscreen canvas we composite by drawing back at slight alpha)
     };
     hud.ctx = hud.canvas.getContext('2d');
@@ -2831,11 +2936,40 @@ void main() {
 
     // HUD toggle button (mobile-friendly)
     const hudToggleBtn = document.getElementById('hudToggle');
-    hudToggleBtn.addEventListener('click', () => {
-        hud.visible = !hud.visible;
-        hud.canvas.classList.toggle('hidden', !hud.visible);
-        hudToggleBtn.textContent = 'HUD: ' + (hud.visible ? 'on' : 'off');
-    });
+    function setHudVisible(v) {
+        hud.visible = v;
+        hud.canvas.classList.toggle('hidden', !v);
+        hudToggleBtn.textContent = 'HUD: ' + (v ? 'on' : 'off');
+        const cb = document.getElementById('hudVisible');
+        if (cb) cb.checked = v;
+    }
+    hudToggleBtn.addEventListener('click', () => setHudVisible(!hud.visible));
+
+    // HUD control panel bindings
+    {
+        const visCb = document.getElementById('hudVisible');
+        if (visCb) visCb.addEventListener('change', e => setHudVisible(e.target.checked));
+        const bindHudRange = (id, key, fmt = v => v.toFixed(2)) => {
+            const el = document.getElementById(id);
+            const disp = document.getElementById(id + 'Value');
+            if (!el) return;
+            el.addEventListener('input', e => {
+                hud[key] = parseFloat(e.target.value);
+                if (disp) disp.textContent = fmt(hud[key]);
+            });
+        };
+        const bindHudCheck = (id, key) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('change', e => { hud[key] = e.target.checked; });
+        };
+        bindHudRange('hudSize',    'size');
+        bindHudRange('hudPersist', 'persist');
+        bindHudCheck('hudShowSpectrum', 'showSpectrum');
+        bindHudCheck('hudShowSpiral',   'showSpiral');
+        bindHudCheck('hudShowKick',     'showKick');
+        bindHudCheck('hudShowPulse',    'showPulse');
+    }
 
     function hsl(h, s, l, a) { return `hsla(${(h * 360) | 0}, ${(s * 100) | 0}%, ${(l * 100) | 0}%, ${a})`; }
 
@@ -2845,12 +2979,12 @@ void main() {
         const W = hud.canvas.width, H = hud.canvas.height;
         // Persistence: fade entire canvas slightly each frame
         ctx.globalCompositeOperation = 'destination-in';
-        ctx.fillStyle = 'rgba(0,0,0,0.86)';
+        ctx.fillStyle = `rgba(0,0,0,${hud.persist})`;
         ctx.fillRect(0, 0, W, H);
         ctx.globalCompositeOperation = 'lighter'; // additive
 
         const cx = W * 0.5, cy = H * 0.5;
-        const R = Math.min(W, H) * 0.32;
+        const R = Math.min(W, H) * hud.size;
         hud.hueOffset = (hud.hueOffset + 0.0015) % 1;
 
         // Audio data (or zero if not running)
@@ -2859,7 +2993,7 @@ void main() {
         const haveData = fd && td && (audio.drumsActive || audio.micActive);
 
         // 1) Spectrum ring — points around a circle
-        if (haveData) {
+        if (haveData && hud.showSpectrum) {
             const N = 96;
             for (let i = 0; i < N; i++) {
                 const bin = Math.floor((i / N) * fd.length * 0.7);
@@ -2878,7 +3012,7 @@ void main() {
         }
 
         // 2) Spiral waveform inside the ring
-        if (haveData) {
+        if (haveData && hud.showSpiral) {
             const N = 384;
             const TURNS = 3.5;
             const RO = R * 0.62, RI = R * 0.10;
@@ -2901,7 +3035,7 @@ void main() {
         }
 
         // 3) Kick shockwave ring
-        if (audio.kickIntensity > 0.01) {
+        if (audio.kickIntensity > 0.01 && hud.showKick) {
             const phase = audio.kickPhase; // 0..1
             const radius = R * (0.7 + phase * 0.9);
             const alpha = (1 - phase) * audio.kickIntensity;
@@ -2913,7 +3047,7 @@ void main() {
         }
 
         // 4) Center pulse: small dot whose size ~ bass envelope
-        if (haveData) {
+        if (haveData && hud.showPulse) {
             ctx.beginPath();
             const pr = 4 + audio.bass * 30;
             const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, pr * 2);
